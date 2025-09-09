@@ -2,8 +2,10 @@
 using NetTopologySuite.Geometries;
 using Npgsql;
 using NpgsqlTypes;
-
-var connString = "Host=192.168.1.10;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
+// use this connection string if your DB is on another machine 
+//var connString = "Host=192.168.1.10;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
+// use this connection string if your DB is on the same machine as the simulator (server)
+var connString = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (s, e) =>
@@ -12,7 +14,26 @@ Console.CancelKeyPress += (s, e) =>
     cts.Cancel();
 };
 
-Console.WriteLine("Rover simulator starting. Press Ctrl+C to stop.");
+Console.WriteLine("Rover simulator starting. Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
+
+// Progress toggle (Ctrl+P) - use a shared state container (declared at end of file)
+ProgressState.Enabled = true; // default
+_ = Task.Run(async () =>
+{
+    while (!cts.IsCancellationRequested)
+    {
+        if (Console.KeyAvailable)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.P && (key.Modifiers & ConsoleModifiers.Control) != 0)
+            {
+                ProgressState.Enabled = !ProgressState.Enabled;
+                Console.WriteLine($"[progress] {(ProgressState.Enabled ? "ON" : "OFF")}");
+            }
+        }
+        await Task.Delay(50, CancellationToken.None); // small polling delay
+    }
+});
 
 // Riverhead Forest (approx) bounding box (WGS84: EPSG:4326)
 const double minLat = -36.78;
@@ -60,12 +81,14 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 CREATE SCHEMA IF NOT EXISTS roverdata;
 
+DROP TABLE IF EXISTS roverdata.rover_measurements;
+
 CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
     id BIGSERIAL PRIMARY KEY,
+    geom geometry(Point, 4326),
     session_id UUID NOT NULL,
     sequence INT NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL,
-    geom geometry(Point, 4326),
     latitude DOUBLE PRECISION NOT NULL,
     longitude DOUBLE PRECISION NOT NULL,
     wind_direction_deg SMALLINT NOT NULL,
@@ -144,6 +167,12 @@ try
         pGeom.Value = point;
 
         await insert.ExecuteNonQueryAsync(cts.Token);
+
+        // Progress every 10 inserts
+        if (ProgressState.Enabled && seq % 10 == 0)
+        {
+            Console.WriteLine($"[progress] {seq} rows inserted (session {sessionId}) last=({lat:F5},{lon:F5}) wind {windSpeedMps:F1}m/s dir {windDirDeg}°");
+        }
 
         // Wait until next interval tick
         nextTick += interval;
@@ -230,3 +259,6 @@ static async Task ResetDatabaseAsync(string adminConnectionString, string dbName
         await create.ExecuteNonQueryAsync(token);
     }
 }
+
+// Shared progress state container
+static class ProgressState { public static volatile bool Enabled; }
