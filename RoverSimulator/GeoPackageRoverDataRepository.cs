@@ -1,6 +1,7 @@
 using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
 using System.Globalization;
+using System.Diagnostics;
 
 namespace RoverSimulator;
 
@@ -11,6 +12,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
     private string? _dbPath;
     private string? _folderPath;
     private const string LayerName = "rover_measurements";
+    private const string FixedFileName = "rover_data.gpkg"; // Fixed filename, no timestamp
 
     public GeoPackageRoverDataRepository(string connectionString) : base(connectionString)
     {
@@ -22,10 +24,132 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
             _folderPath = Environment.CurrentDirectory;
         }
 
-        // Create timestamped filename for this session
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-        var fileName = $"rover_data_{timestamp}.gpkg";
-        _dbPath = Path.Combine(_folderPath, fileName);
+        // Use fixed filename instead of timestamped one
+        _dbPath = Path.Combine(_folderPath, FixedFileName);
+    }
+
+    /// <summary>
+    /// Checks if the GeoPackage file is currently locked by another process
+    /// </summary>
+    public bool IsFileLocked()
+    {
+        if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath))
+            return false;
+
+        try
+        {
+            using var stream = File.Open(_dbPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return false; // File is not locked
+        }
+        catch (IOException)
+        {
+            return true; // File is locked
+        }
+        catch (Exception)
+        {
+            return false; // Other errors, assume not locked
+        }
+    }
+
+    /// <summary>
+    /// Gets information about which processes might be locking the file
+    /// </summary>
+    public List<string> GetLockingProcesses()
+    {
+        var lockingProcesses = new List<string>();
+        
+        if (string.IsNullOrEmpty(_dbPath) || !File.Exists(_dbPath))
+            return lockingProcesses;
+
+        try
+        {
+            // Look for processes that might be using the file
+            var processes = Process.GetProcesses();
+            
+            foreach (var process in processes)
+            {
+                try
+                {
+                    // Check for common GIS applications
+                    var processName = process.ProcessName.ToLower();
+                    if (processName.Contains("qgis") || 
+                        processName.Contains("arcgis") || 
+                        processName.Contains("arcmap") || 
+                        processName.Contains("arcpro") ||
+                        processName.Contains("roversimulator"))
+                    {
+                        lockingProcesses.Add($"{process.ProcessName} (PID: {process.Id})");
+                    }
+                }
+                catch
+                {
+                    // Ignore processes we can't access
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            lockingProcesses.Add($"Error detecting processes: {ex.Message}");
+        }
+
+        return lockingProcesses;
+    }
+
+    /// <summary>
+    /// Attempts to force unlock the file by waiting and retrying
+    /// </summary>
+    public async Task<bool> TryForceUnlockAsync(int maxAttempts = 5, int delayMs = 1000)
+    {
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (!IsFileLocked())
+                return true;
+
+            Console.WriteLine($"Attempt {attempt}/{maxAttempts}: File still locked, waiting {delayMs}ms...");
+            await Task.Delay(delayMs);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks and reports the file lock status to the user
+    /// </summary>
+    public void CheckFileLockStatus()
+    {
+        if (string.IsNullOrEmpty(_dbPath))
+            return;
+
+        if (File.Exists(_dbPath))
+        {
+            Console.WriteLine($"Found existing GeoPackage file: {_dbPath}");
+            
+            if (IsFileLocked())
+            {
+                Console.WriteLine("WARNING: File is currently locked by another application!");
+                
+                var lockingProcesses = GetLockingProcesses();
+                if (lockingProcesses.Any())
+                {
+                    Console.WriteLine("Potentially locking processes:");
+                    foreach (var process in lockingProcesses)
+                    {
+                        Console.WriteLine($"  - {process}");
+                    }
+                }
+                
+                Console.WriteLine("This usually means QGIS, ArcGIS, or another RoverSimulator instance has the file open.");
+                Console.WriteLine("The file must be closed before the simulation can start.");
+            }
+            else
+            {
+                Console.WriteLine("File is available and can be overwritten.");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"No existing GeoPackage file found. Will create: {_dbPath}");
+        }
     }
 
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -76,9 +200,48 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
     public override async Task ResetDatabaseAsync(CancellationToken cancellationToken = default)
     {
-        // For timestamped files, we don't need to reset/delete anything
-        // Each run creates a new file automatically
-        Console.WriteLine($"New GeoPackage session will be created at: {_dbPath}");
+        if (string.IsNullOrEmpty(_dbPath))
+            return;
+
+        // Close existing GeoPackage if open
+        _geoPackage?.Dispose();
+        _geoPackage = null;
+        _measurementsLayer = null;
+
+        // Wait a moment for resources to be fully released
+        await Task.Delay(100, cancellationToken);
+
+        // Delete the GeoPackage file if it exists
+        if (File.Exists(_dbPath))
+        {
+            try
+            {
+                // Try to force unlock before deletion
+                if (IsFileLocked())
+                {
+                    Console.WriteLine("File is locked, attempting to wait for unlock...");
+                    var unlocked = await TryForceUnlockAsync(maxAttempts: 3, delayMs: 500);
+                    
+                    if (!unlocked)
+                    {
+                        var lockingProcesses = GetLockingProcesses();
+                        var processInfo = lockingProcesses.Any() ? $" Locking processes: {string.Join(", ", lockingProcesses)}" : "";
+                        throw new InvalidOperationException($"Cannot delete GeoPackage file - it is locked by another application.{processInfo} Please close QGIS, ArcGIS, or other RoverSimulator instances and try again: {_dbPath}");
+                    }
+                }
+
+                File.Delete(_dbPath);
+                Console.WriteLine($"Deleted existing GeoPackage: {Path.GetFileName(_dbPath)}");
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException($"Failed to delete existing GeoPackage file: {ex.Message}. The file may be locked by another application. Please close all applications using the file and try again.", ex);
+            }
+        }
+        else
+        {
+            Console.WriteLine("No existing GeoPackage file to delete.");
+        }
     }
 
     public override async Task InsertMeasurementAsync(RoverMeasurement measurement, CancellationToken cancellationToken = default)
@@ -237,6 +400,14 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
             {
                 try
                 {
+                    // Properly dispose of resources
+                    _measurementsLayer = null;
+                    _geoPackage?.Dispose();
+                    _geoPackage = null;
+                    
+                    // Give a moment for the file handle to be released
+                    Thread.Sleep(100);
+
                     if (!string.IsNullOrEmpty(_dbPath) && File.Exists(_dbPath))
                     {
                         var fileInfo = new FileInfo(_dbPath);
@@ -246,15 +417,13 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                         Console.WriteLine($"   Size: {fileInfo.Length / 1024.0:F1} KB");
                         Console.WriteLine($"   Created: {fileInfo.CreationTime:yyyy-MM-dd HH:mm:ss}");
                         Console.WriteLine("You can open this file in QGIS, ArcGIS, or other GIS software!");
+                        Console.WriteLine("The file should now be available for other applications to use.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error getting file stats: {ex.Message}");
+                    Console.WriteLine($"Error during disposal: {ex.Message}");
                 }
-
-                _measurementsLayer = null;
-                _geoPackage?.Dispose();
             }
             base.Dispose(disposing);
         }

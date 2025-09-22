@@ -1,15 +1,171 @@
 @page "/"
 @inject IJSRuntime JS
 
-<h3>Hello, Leaflet + Blazor 👋</h3>
-<p>This is a minimal demo.</p>
+<h3>RiverHead Forest Rover Tracker 🌲🤖💨</h3>
+<p>Real-time tracking of rover movements with wind direction and speed visualization within the RiverHead Forest boundary polygon.</p>
+
+<div class="info-panel mb-3">
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">🗺️ Forest Area</h5>
+                    <p class="card-text">Forest boundary loaded from GeoPackage data</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">🛤️ Rover Trail</h5>
+                    <p class="card-text">Historical path with measurements</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">💨 Wind Data</h5>
+                    <p class="card-text">Wind speed & direction arrows</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">📍 Live Position</h5>
+                    <p class="card-text">Real-time rover location updates</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div id="map"></div>
 
+<div class="legend mt-3">
+    <h5>Map Legend:</h5>
+    <div class="row">
+        <div class="col-md-6">
+            <ul class="list-unstyled">
+                <li><span style="color: #4a7c59;">●</span> <strong>Green Area:</strong> RiverHead Forest boundary</li>
+                <li><span style="color: #ff6b35;">●</span> <strong>Orange Line/Points:</strong> Rover trail and measurements</li>
+                <li><span style="color: red;">●</span> <strong>Red Marker:</strong> Current rover position</li>
+            </ul>
+        </div>
+        <div class="col-md-6">
+            <h6>Wind Arrow Colors:</h6>
+            <ul class="list-unstyled">
+                <li><span style="color: #4dabf7;">➤</span> <strong>Light Blue:</strong> 0-2 m/s (Calm)</li>
+                <li><span style="color: #1c7ed6;">➤</span> <strong>Blue:</strong> 2-4 m/s (Light breeze)</li>
+                <li><span style="color: #ffd43b;">➤</span> <strong>Yellow:</strong> 4-8 m/s (Moderate breeze)</li>
+                <li><span style="color: #ff922b;">➤</span> <strong>Orange:</strong> 8-10 m/s (Fresh breeze)</li>
+                <li><span style="color: #e03131;">➤</span> <strong>Red:</strong> 10+ m/s (Strong wind)</li>
+            </ul>
+        </div>
+    </div>
+    <p class="text-muted">
+        <small>
+            • Map updates every 2 seconds with new rover data<br/>
+            • Wind arrows point in the direction the wind is <strong>blowing to</strong><br/>
+            • Arrow length represents wind speed (longer = stronger wind)<br/>
+            • <strong>White center dot</strong> marks the exact measurement location<br/>
+            • Click on markers and arrows to see detailed information<br/>
+            • Use layer control (top right) to toggle visibility of different layers
+        </small>
+    </p>
+</div>
+
 @if (!string.IsNullOrEmpty(_error))
 {
-    <div class="alert alert-warning mt-3">JS init failed: @_error</div>
+    <div class="alert alert-warning mt-3">Map initialization failed: @_error</div>
 }
+
+<style>
+    .info-panel .card {
+        height: 100%;
+        border-left: 4px solid #4a7c59;
+    }
+    
+    .legend {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #dee2e6;
+    }
+    
+    .legend ul li {
+        margin-bottom: 5px;
+    }
+    
+    .legend h6 {
+        color: #495057;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+    
+    #map {
+        height: 70vh;
+        border: 2px solid #dee2e6;
+        border-radius: 5px;
+    }
+     
+    /* Wind arrow icon styles - FIXED for proper alignment */
+    .wind-arrow-icon {
+        background: none !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .current-wind-arrow-icon {
+        background: none !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .rover-current-icon {
+        background: none !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Ensure SVG arrows are properly displayed and centered */
+    .wind-arrow-icon svg,
+    .current-wind-arrow-icon svg,
+    .rover-current-icon svg {
+        display: block;
+        pointer-events: none;
+        position: relative;
+        margin: 0;
+        padding: 0;
+    }
+    
+    /* Remove any default Leaflet div icon styling that might interfere */
+    .leaflet-div-icon {
+        background: transparent !important;
+        border: none !important;
+    }
+    
+    /* Ensure proper layering */
+    .leaflet-marker-icon {
+        z-index: auto;
+    }
+    
+    /* Wind speed color legend helper */
+    .legend span[style*="color"] {
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+    
+    /* Ensure proper popup positioning */
+    .leaflet-popup-content {
+        margin: 8px 12px !important;
+        line-height: 1.4;
+    }
+</style>
 
 @code {
     private string? _error;
