@@ -3,7 +3,7 @@ using RoverSimulator;
 
 // ===== DATABASE CONFIGURATION =====
 // Choose database type: "postgres" or "geopackage"
-const string DATABASE_TYPE = SimulatorConfiguration.DEFAULT_DATABASE_TYPE; // Change this to "geopackage" to use GeoPackage
+const string DATABASE_TYPE = SimulatorConfiguration.DEFAULT_DATABASE_TYPE; 
 
 // Check if we should just verify the existing GeoPackage
 if (args.Length > 0 && args[0] == "--verify")
