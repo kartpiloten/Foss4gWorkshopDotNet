@@ -156,12 +156,12 @@ try
     var sw = Stopwatch.StartNew();
     var nextTick = sw.Elapsed;
 
-    Console.WriteLine("\nStarting rover simulation with SMOOTH TRANSITIONS...");
+    Console.WriteLine("\nStarting rover simulation with BALANCED TRANSITIONS...");
     Console.WriteLine("Features:");
-    Console.WriteLine("- Smoother wind direction changes (gradual transitions over 60s)");
-    Console.WriteLine("- Weather patterns lasting 5-20 minutes");
-    Console.WriteLine("- Reduced movement jerkiness (30% of previous turning rate)");
-    Console.WriteLine("- More realistic environmental modeling");
+    Console.WriteLine("- Moderate wind direction changes (gradual transitions over 30s)");
+    Console.WriteLine("- Weather patterns lasting 3-10 minutes");
+    Console.WriteLine("- Balanced movement (40% smoother than original, but not too stable)");
+    Console.WriteLine("- Natural environmental modeling with appropriate variation");
     Console.WriteLine("GeoPackage file: rover_data.gpkg (fixed filename, recreated each run)");
     Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
 
@@ -169,15 +169,15 @@ try
     {
         var now = DateTimeOffset.UtcNow;
 
-        // Update rover position with much smoother bearing changes
-        position.UpdateBearing(rng, meanChange: 0, stdDev: 1.5); // Reduced from 3 to 1.5
+        // Update rover position with balanced bearing changes
+        position.UpdateBearing(rng, meanChange: 0, stdDev: 2.0); // Moderate value between 1.5 and 3.0
         position.UpdatePosition(interval);
 
         // Use ACTUAL POLYGON boundary checking with NetTopologySuite Contains
         // This replaces the simple bounding box method
         position.ConstrainToForestBoundary(); // Using synchronous version for performance
 
-        // Update environmental measurements with smooth transitions
+        // Update environmental measurements with balanced transitions
         attributes.UpdateWindMeasurements(rng);
 
         // Create measurement record

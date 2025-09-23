@@ -37,10 +37,10 @@ public class RoverAttributes
         _internalRandom = new Random();
         _updatesSinceLastMajorChange = 0;
         
-        // Initialize weather pattern
+        // Initialize weather pattern with moderate duration
         _baseWindDirection = initialWindDirection;
         _baseWindSpeed = initialWindSpeed;
-        _weatherPatternDuration = _internalRandom.Next(300, 900); // 5-15 minutes of similar weather
+        _weatherPatternDuration = _internalRandom.Next(180, 600); // 3-10 minutes (reduced from 5-15)
         _weatherPatternElapsed = 0;
     }
 
@@ -74,15 +74,15 @@ public class RoverAttributes
     /// </summary>
     private void StartNewWeatherPattern(Random random)
     {
-        // Generate new base weather conditions
-        var directionChange = NextGaussian(random, 0, 45); // Larger changes between weather patterns
+        // Generate new base weather conditions with moderate changes
+        var directionChange = NextGaussian(random, 0, 30); // Reduced from 45 to 30 degrees
         _baseWindDirection = NormalizeDegrees(_baseWindDirection + directionChange);
         
-        var speedMultiplier = 0.7 + random.NextDouble() * 0.6; // 0.7 to 1.3x current speed
+        var speedMultiplier = 0.8 + random.NextDouble() * 0.4; // 0.8 to 1.2x (reduced range)
         _baseWindSpeed = Math.Clamp(_baseWindSpeed * speedMultiplier, 0.5, MaxWindSpeedMps);
         
-        // Reset pattern timing
-        _weatherPatternDuration = random.Next(300, 1200); // 5-20 minutes
+        // Shorter pattern timing for more variation
+        _weatherPatternDuration = random.Next(180, 600); // 3-10 minutes (reduced from 5-20)
         _weatherPatternElapsed = 0;
         
         Console.WriteLine($"New weather pattern: {_baseWindDirection:F0}° @ {_baseWindSpeed:F1} m/s");
@@ -93,29 +93,30 @@ public class RoverAttributes
     /// </summary>
     private void UpdateTargetsAndTransition(Random random)
     {
-        // Occasionally make small adjustments to targets (much less frequent)
-        if (_updatesSinceLastMajorChange > 30 && random.NextDouble() < 0.1) // 10% chance every 30+ seconds
+        // More frequent adjustments to targets (increased from 10% to 25%)
+        if (_updatesSinceLastMajorChange > 15 && random.NextDouble() < 0.25) // 25% chance every 15+ seconds
         {
-            // Small variations around the base weather pattern
-            var directionVariation = NextGaussian(random, 0, 8); // Much smaller variations
+            // Medium variations around the base weather pattern (increased from 8 to 15 degrees)
+            var directionVariation = NextGaussian(random, 0, 15); // More noticeable variations
             _targetWindDirection = NormalizeDegrees(_baseWindDirection + directionVariation);
             
-            var speedVariation = NextGaussian(random, 0, 0.3); // Much smaller speed variations
+            // Moderate speed variations (increased from 0.3 to 0.8)
+            var speedVariation = NextGaussian(random, 0, 0.8); // More speed variations
             _targetWindSpeed = Math.Clamp(_baseWindSpeed + speedVariation, 0.0, MaxWindSpeedMps);
             
-            // Calculate smooth transition rates (very gradual)
+            // Calculate transition rates (faster transitions - 30s instead of 60s)
             var directionDiff = CalculateAngleDifference(WindDirectionDegrees, _targetWindDirection);
-            _directionChangeRate = directionDiff / 60.0; // Take 60 seconds to reach target
+            _directionChangeRate = directionDiff / 30.0; // Take 30 seconds to reach target
             
             var speedDiff = _targetWindSpeed - WindSpeedMps;
-            _speedChangeRate = speedDiff / 45.0; // Take 45 seconds to reach target speed
+            _speedChangeRate = speedDiff / 25.0; // Take 25 seconds to reach target speed
             
             _updatesSinceLastMajorChange = 0;
         }
         
-        // Add very small random fluctuations for realism (much smaller than before)
-        var microDirectionChange = NextGaussian(random, 0, 0.5); // Very small random walk
-        var microSpeedChange = NextGaussian(random, 0, 0.02); // Very small speed fluctuations
+        // Add moderate random fluctuations for realism (increased micro-variations)
+        var microDirectionChange = NextGaussian(random, 0, 1.5); // Increased from 0.5 to 1.5
+        var microSpeedChange = NextGaussian(random, 0, 0.08); // Increased from 0.02 to 0.08
         
         _targetWindDirection = NormalizeDegrees(_targetWindDirection + microDirectionChange);
         _targetWindSpeed = Math.Clamp(_targetWindSpeed + microSpeedChange, 0.0, MaxWindSpeedMps);
@@ -130,9 +131,9 @@ public class RoverAttributes
         WindDirectionDegrees += (int)Math.Round(_directionChangeRate);
         WindSpeedMps += _speedChangeRate;
         
-        // Decay the change rates (natural settling)
-        _directionChangeRate *= 0.98; // Gradual settling
-        _speedChangeRate *= 0.98;
+        // Less aggressive decay for more persistent changes
+        _directionChangeRate *= 0.995; // Reduced from 0.98 to 0.995 (slower settling)
+        _speedChangeRate *= 0.995;
     }
     
     /// <summary>
