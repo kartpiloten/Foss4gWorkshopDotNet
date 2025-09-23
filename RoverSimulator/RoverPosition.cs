@@ -55,11 +55,24 @@ public class RoverPosition
     }
 
     /// <summary>
-    /// Updates the bearing with random variation
+    /// Updates the bearing with smooth random variation and momentum
     /// </summary>
     public void UpdateBearing(Random random, double meanChange = 0, double stdDev = 3)
     {
-        BearingDegrees = NormalizeDegrees(BearingDegrees + NextGaussian(random, meanChange, stdDev));
+        // Much smaller standard deviation for smoother movement
+        // Reduce from stdDev=3 to a much smaller value for gradual turning
+        double smoothStdDev = stdDev * 0.3; // Reduce turning abruptness by 70%
+        
+        // Add inertia - larger changes are less likely
+        double bearingChange = NextGaussian(random, meanChange, smoothStdDev);
+        
+        // Apply a momentum factor - reduce sudden large changes
+        if (Math.Abs(bearingChange) > 5.0) // If change is larger than 5 degrees
+        {
+            bearingChange *= 0.5; // Reduce large changes by half
+        }
+        
+        BearingDegrees = NormalizeDegrees(BearingDegrees + bearingChange);
     }
 
     /// <summary>

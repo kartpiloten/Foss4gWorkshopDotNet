@@ -117,7 +117,7 @@ try
     await repository.ResetDatabaseAsync(cts.Token);
     await repository.InitializeAsync(cts.Token);
 
-    // Initialize rover position
+    // Initialize rover position with smoother movement parameters
     var rng = new Random();
     var position = new RoverPosition(
         initialLat: SimulatorConfiguration.DEFAULT_START_LATITUDE,
@@ -134,12 +134,13 @@ try
     Console.WriteLine($"Forest bounds: ({SimulatorConfiguration.MIN_LONGITUDE:F6}, {SimulatorConfiguration.MIN_LATITUDE:F6}) to ({SimulatorConfiguration.MAX_LONGITUDE:F6}, {SimulatorConfiguration.MAX_LATITUDE:F6})");
     Console.WriteLine($"DEBUG: Rover speed set to {position.WalkSpeedMps} m/s (debug mode)");
     Console.WriteLine("POLYGON BOUNDARY: Using NetTopologySuite Contains for accurate forest boundary checking");
+    Console.WriteLine("SMOOTH MOVEMENT: Enhanced wind and movement smoothing enabled");
 
     // Verify initial position is inside forest polygon
     var initialInForest = await position.IsInForestBoundaryAsync();
     Console.WriteLine($"Initial position inside forest polygon: {initialInForest}");
 
-    // Initialize rover attributes (environmental measurements)
+    // Initialize rover attributes with smoother transitions
     var attributes = new RoverAttributes(
         initialWindDirection: rng.Next(0, 360),
         initialWindSpeed: 1.0 + rng.NextDouble() * 5.0, // 1-6 m/s typical inside forest
@@ -155,7 +156,12 @@ try
     var sw = Stopwatch.StartNew();
     var nextTick = sw.Elapsed;
 
-    Console.WriteLine("\nStarting rover simulation with POLYGON boundary checking...");
+    Console.WriteLine("\nStarting rover simulation with SMOOTH TRANSITIONS...");
+    Console.WriteLine("Features:");
+    Console.WriteLine("- Smoother wind direction changes (gradual transitions over 60s)");
+    Console.WriteLine("- Weather patterns lasting 5-20 minutes");
+    Console.WriteLine("- Reduced movement jerkiness (30% of previous turning rate)");
+    Console.WriteLine("- More realistic environmental modeling");
     Console.WriteLine("GeoPackage file: rover_data.gpkg (fixed filename, recreated each run)");
     Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
 
@@ -163,15 +169,15 @@ try
     {
         var now = DateTimeOffset.UtcNow;
 
-        // Update rover position with slight randomness
-        position.UpdateBearing(rng, meanChange: 0, stdDev: 3);
+        // Update rover position with much smoother bearing changes
+        position.UpdateBearing(rng, meanChange: 0, stdDev: 1.5); // Reduced from 3 to 1.5
         position.UpdatePosition(interval);
 
         // Use ACTUAL POLYGON boundary checking with NetTopologySuite Contains
         // This replaces the simple bounding box method
         position.ConstrainToForestBoundary(); // Using synchronous version for performance
 
-        // Update environmental measurements
+        // Update environmental measurements with smooth transitions
         attributes.UpdateWindMeasurements(rng);
 
         // Create measurement record

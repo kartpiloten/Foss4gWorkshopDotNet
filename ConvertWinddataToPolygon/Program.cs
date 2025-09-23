@@ -2,6 +2,7 @@
 using NetTopologySuite.Geometries;
 using ReadRoverDBStub;
 using System.Globalization;
+using System.Linq;
 using ConvertWinddataToPolygon;
 
 Console.WriteLine("=== Wind Data to Polygon Converter ===");
@@ -211,6 +212,10 @@ try
     var gpkgFileInfo = new FileInfo(outputGeopackagePath);
     Console.WriteLine($"GeoPackage size: {gpkgFileInfo.Length / 1024.0:F1} KB");
     
+    // Create unified coverage polygon layer
+    Console.WriteLine("🔄 Creating unified coverage polygon...");
+    await CreateUnifiedCoverageLayer(outputGeoPackage, windPolygons.Concat(new[] { sampleFeatureRecord }).ToList());
+    
     // Export to GeoJSON as well for broader compatibility
     await GeoJsonExporter.ExportToGeoJsonAsync(outputGeopackagePath, outputGeoJsonPath);
     
@@ -219,19 +224,26 @@ try
     
     Console.WriteLine("\n🎯 Files created:");
     Console.WriteLine($"   📦 GeoPackage: {outputGeopackagePath}");
+    Console.WriteLine($"      - Individual scent polygons: wind_scent_polygons layer");
+    Console.WriteLine($"      - Unified coverage area: unified_scent_coverage layer");
     Console.WriteLine($"   📄 GeoJSON:    {outputGeoJsonPath}");
     Console.WriteLine("\n📊 Visualization options:");
-    Console.WriteLine("1. QGIS: Open the .gpkg file directly");
+    Console.WriteLine("1. QGIS: Open the .gpkg file directly (contains both layers)");
     Console.WriteLine("2. Web GIS: Use the .geojson file");
     Console.WriteLine("3. Validate: Check the .geojson at geojsonlint.com");
-    Console.WriteLine("\nEach polygon represents the upwind scent detection area for a dog at that rover position.");
+    Console.WriteLine("\nLayers in GeoPackage:");
+    Console.WriteLine("• wind_scent_polygons: Individual scent detection areas for each rover position");
+    Console.WriteLine("• unified_scent_coverage: Combined coverage area showing total scent detection zone");
     
     Console.WriteLine("\n🔧 QGIS Instructions:");
     Console.WriteLine("1. Close any existing wind polygon layers in QGIS");
     Console.WriteLine("2. Layer → Add Layer → Add Vector Layer");
     Console.WriteLine($"3. Select: {outputGeopackagePath}");
-    Console.WriteLine("4. Check that layer properties show 'Polygon' geometry type");
-    Console.WriteLine("5. If still showing as points, use the GeoJSON file instead");
+    Console.WriteLine("4. Choose which layer(s) to load:");
+    Console.WriteLine("   - wind_scent_polygons: Shows individual detection areas (detailed view)");
+    Console.WriteLine("   - unified_scent_coverage: Shows total coverage area (overview)");
+    Console.WriteLine("5. Style with transparency to see overlapping areas");
+    Console.WriteLine("6. If still showing as points, use the GeoJSON file instead");
 }
 catch (Exception ex)
 {
@@ -243,7 +255,8 @@ catch (Exception ex)
 }
 
 /// <summary>
-/// Creates a scent polygon representing the upwind area where a dog could detect human scent
+/// Creates a scent polygon representing downwind scent detection and omnidirectional detection around the dog.
+/// The polygon extends in the downwind direction (where scent would be carried by the wind).
 /// </summary>
 static Polygon CreateScentPolygon(RoverMeasurement measurement, GeometryFactory geometryFactory)
 {
@@ -258,116 +271,100 @@ static Polygon CreateScentPolygon(RoverMeasurement measurement, GeometryFactory 
     var metersPerDegLat = 111320.0;
     var metersPerDegLon = 111320.0 * Math.Cos(measurement.Latitude * Math.PI / 180.0);
     
-    // Convert wind direction to radians (0° = North, clockwise)
-    var windRadians = windDirection * Math.PI / 180.0;
+    // Convert wind direction to radians
+    // Wind direction indicates where wind is coming FROM
+    // Scent polygons should extend DOWNWIND (where wind is going)
+    // So we add 180° to get the downwind direction
+    var windRadians = ((windDirection + 180) % 360) * Math.PI / 180.0;
     
-    // Create a fan-shaped polygon representing scent dispersion
-    var coordinates = new List<Coordinate>();
-    
-    // Dog's position (apex of the fan) - this will be the first and last point
+    // Dog's position
     var dogLon = measurement.Longitude;
     var dogLat = measurement.Latitude;
+    var dogPoint = geometryFactory.CreatePoint(new Coordinate(dogLon, dogLat));
+    dogPoint.SRID = 4326;
     
-    // Start at dog's position
-    coordinates.Add(new Coordinate(dogLon, dogLat));
-    
-    // Create the fan shape - wider at max distance
-    var fanHalfAngle = CalculateFanAngle(windSpeed); // Half-angle of the scent detection cone
-    var numPoints = 15; // Number of points to create smooth arc (reduced for simpler geometry)
-    
-    // Generate points for the upwind arc (left side to right side)
-    for (int i = 0; i <= numPoints; i++)
+    try 
     {
-        var angle = windRadians - fanHalfAngle + (2 * fanHalfAngle * i / numPoints);
+        // 1. Create the downwind fan polygon (scent detection area)
+        var fanCoordinates = new List<Coordinate>();
+        fanCoordinates.Add(new Coordinate(dogLon, dogLat));
         
-        // Distance varies based on position in fan (max at center, reduced at edges)
-        var angleFromCenter = Math.Abs(angle - windRadians);
-        var distanceMultiplier = Math.Cos(angleFromCenter); // Reduces distance at edges
-        var distance = maxDistance * Math.Max(0.4, distanceMultiplier); // Minimum 40% distance at edges
+        var fanHalfAngle = CalculateFanAngle(windSpeed);
+        var numPoints = 15;
         
-        // Convert distance to degrees
-        var deltaLat = distance * Math.Cos(angle) / metersPerDegLat;
-        var deltaLon = distance * Math.Sin(angle) / metersPerDegLon;
-        
-        coordinates.Add(new Coordinate(dogLon + deltaLon, dogLat + deltaLat));
-    }
-    
-    // Explicitly close the polygon by returning to the starting point
-    coordinates.Add(new Coordinate(dogLon, dogLat));
-    
-    // Ensure we have enough points for a valid polygon
-    if (coordinates.Count < 4)
-    {
-        // Fallback: create a simple triangle
-        var fallbackDistance = maxDistance * 0.8;
-        coordinates.Clear();
-        coordinates.Add(new Coordinate(dogLon, dogLat)); // Dog position
-        
-        var leftAngle = windRadians - Math.PI / 6; // 30 degrees left
-        var rightAngle = windRadians + Math.PI / 6; // 30 degrees right
-        
-        coordinates.Add(new Coordinate(
-            dogLon + fallbackDistance * Math.Sin(leftAngle) / metersPerDegLon,
-            dogLat + fallbackDistance * Math.Cos(leftAngle) / metersPerDegLat));
-            
-        coordinates.Add(new Coordinate(
-            dogLon + fallbackDistance * Math.Sin(rightAngle) / metersPerDegLon,
-            dogLat + fallbackDistance * Math.Cos(rightAngle) / metersPerDegLat));
-            
-        coordinates.Add(new Coordinate(dogLon, dogLat)); // Close the triangle
-    }
-    
-    try
-    {
-        // Create the linear ring and polygon using the geometry factory
-        var linearRing = geometryFactory.CreateLinearRing(coordinates.ToArray());
-        var polygon = geometryFactory.CreatePolygon(linearRing);
-        
-        // Ensure SRID is set correctly
-        polygon.SRID = 4326;
-        
-        // Validate the polygon
-        if (!polygon.IsValid)
+        for (int i = 0; i <= numPoints; i++)
         {
-            // Try to fix common issues
-            var buffered = polygon.Buffer(0.0); // Buffer with 0 distance can fix self-intersections
+            var angle = windRadians - fanHalfAngle + (2 * fanHalfAngle * i / numPoints);
+            var angleFromCenter = Math.Abs(angle - windRadians);
+            var distanceMultiplier = Math.Cos(angleFromCenter);
+            var distance = maxDistance * Math.Max(0.4, distanceMultiplier);
+            
+            var deltaLat = distance * Math.Cos(angle) / metersPerDegLat;
+            var deltaLon = distance * Math.Sin(angle) / metersPerDegLon;
+            
+            fanCoordinates.Add(new Coordinate(dogLon + deltaLon, dogLat + deltaLat));
+        }
+        fanCoordinates.Add(new Coordinate(dogLon, dogLat));
+        
+        var fanRing = geometryFactory.CreateLinearRing(fanCoordinates.ToArray());
+        var fanPolygon = geometryFactory.CreatePolygon(fanRing);
+        fanPolygon.SRID = 4326;
+        
+        // 2. Create 30-meter circular buffer around dog (omnidirectional detection)
+        const double bufferRadiusMeters = 30.0;
+        var bufferRadiusDegrees = bufferRadiusMeters / metersPerDegLat;
+        var circularBuffer = dogPoint.Buffer(bufferRadiusDegrees);
+        
+        // 3. Combine fan and circular buffer using union
+        var combinedGeometry = fanPolygon.Union(circularBuffer);
+        
+        // Handle different result types from union
+        Polygon finalPolygon;
+        if (combinedGeometry is Polygon singlePolygon)
+        {
+            finalPolygon = singlePolygon;
+        }
+        else if (combinedGeometry is MultiPolygon multiPolygon)
+        {
+            // Take the largest polygon
+            finalPolygon = multiPolygon.Geometries.OfType<Polygon>().OrderByDescending(p => p.Area).First();
+        }
+        else
+        {
+            // Fallback to circular buffer only
+            finalPolygon = circularBuffer as Polygon ?? fanPolygon;
+        }
+        
+        finalPolygon.SRID = 4326;
+        
+        // Validate and fix if necessary
+        if (!finalPolygon.IsValid)
+        {
+            var buffered = finalPolygon.Buffer(0.0);
             if (buffered is Polygon fixedPolygon && fixedPolygon.IsValid)
             {
-                fixedPolygon.SRID = 4326;
                 return fixedPolygon;
-            }
-            
-            // Last resort: create a simple circular buffer around the dog position
-            var dogPoint = geometryFactory.CreatePoint(new Coordinate(dogLon, dogLat));
-            dogPoint.SRID = 4326;
-            var circularBuffer = dogPoint.Buffer(maxDistance / metersPerDegLat * 0.5); // Half the max distance as radius
-            
-            if (circularBuffer is Polygon circularPolygon)
-            {
-                circularPolygon.SRID = 4326;
-                return circularPolygon;
             }
         }
         
-        return polygon;
+        return finalPolygon;
     }
     catch (Exception ex)
     {
         Console.WriteLine($"Error creating polygon for sequence {measurement.Sequence}: {ex.Message}");
         
-        // Fallback: create a simple point buffer
-        var dogPoint = geometryFactory.CreatePoint(new Coordinate(dogLon, dogLat));
-        dogPoint.SRID = 4326;
-        var buffer = dogPoint.Buffer(maxDistance / metersPerDegLat * 0.3); // Small circular buffer
+        // Fallback: simple circular buffer
+        var fallbackRadius = 40.0 / metersPerDegLat;
+        var fallbackBuffer = dogPoint.Buffer(fallbackRadius);
         
-        if (buffer is Polygon bufferPolygon)
+        if (fallbackBuffer is Polygon fallbackPolygon)
         {
-            bufferPolygon.SRID = 4326;
-            return bufferPolygon;
+            fallbackPolygon.SRID = 4326;
+            return fallbackPolygon;
         }
         
-        // Final fallback: simple square
-        var fallbackPolygon = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(new[]
+        // Final fallback
+        var finalFallback = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(new[]
         {
             new Coordinate(dogLon, dogLat),
             new Coordinate(dogLon + 0.001, dogLat),
@@ -375,8 +372,8 @@ static Polygon CreateScentPolygon(RoverMeasurement measurement, GeometryFactory 
             new Coordinate(dogLon, dogLat + 0.001),
             new Coordinate(dogLon, dogLat)
         }));
-        fallbackPolygon.SRID = 4326;
-        return fallbackPolygon;
+        finalFallback.SRID = 4326;
+        return finalFallback;
     }
 }
 
@@ -415,4 +412,211 @@ static double CalculateFanAngle(double windSpeedMps)
         return (15.0 - (windSpeedMps - 3.0) * 2.0) * Math.PI / 180.0; // ±9-15 degrees  
     else // Very strong wind - very narrow cone
         return Math.Max(5.0, 9.0 - (windSpeedMps - 6.0) * 0.5) * Math.PI / 180.0; // ±5-9 degrees
+}
+
+/// <summary>
+/// Creates a unified coverage polygon layer that combines all individual scent polygons into one
+/// </summary>
+static async Task CreateUnifiedCoverageLayer(GeoPackage geoPackage, List<FeatureRecord> allPolygons)
+{
+    try
+    {
+        Console.WriteLine($"Processing {allPolygons.Count} polygons for unified coverage...");
+        
+        // Define schema for unified coverage layer
+        var unifiedSchema = new Dictionary<string, string>
+        {
+            ["total_polygons"] = "INTEGER NOT NULL",
+            ["total_area_m2"] = "REAL NOT NULL",
+            ["created_at"] = "TEXT NOT NULL",
+            ["description"] = "TEXT NOT NULL"
+        };
+        
+        // Create the unified coverage layer
+        var unifiedLayer = await geoPackage.EnsureLayerAsync("unified_scent_coverage", unifiedSchema, 4326, "POLYGON");
+        
+        // Collect all geometries
+        var geometries = new List<Geometry>();
+        double totalOriginalArea = 0;
+        
+        foreach (var featureRecord in allPolygons)
+        {
+            if (featureRecord.Geometry != null && featureRecord.Geometry.IsValid)
+            {
+                geometries.Add(featureRecord.Geometry);
+                
+                // Sum up original areas
+                if (double.TryParse(featureRecord.Attributes["scent_area_m2"], NumberStyles.Float, CultureInfo.InvariantCulture, out var area))
+                {
+                    totalOriginalArea += area;
+                }
+            }
+        }
+        
+        if (geometries.Count == 0)
+        {
+            Console.WriteLine("⚠️ No valid geometries found for unified coverage");
+            return;
+        }
+        
+        Console.WriteLine($"Combining {geometries.Count} valid polygons...");
+        
+        // Create geometry factory
+        var geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        
+        // Union all polygons into one
+        Geometry unifiedGeometry = geometries.First();
+        
+        // Progressive union for better performance with many polygons
+        var batchSize = 50; // Process in batches to avoid memory issues
+        for (int i = 1; i < geometries.Count; i += batchSize)
+        {
+            var batch = geometries.Skip(i).Take(batchSize).ToList();
+            
+            foreach (var geometry in batch)
+            {
+                try
+                {
+                    unifiedGeometry = unifiedGeometry.Union(geometry);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Failed to union polygon {i}: {ex.Message}");
+                    // Continue with other polygons
+                }
+            }
+            
+            // Progress update for large datasets
+            if (i % 100 == 0)
+            {
+                Console.WriteLine($"Processed {Math.Min(i + batchSize, geometries.Count)} / {geometries.Count} polygons...");
+            }
+        }
+        
+        // Handle MultiPolygon result - combine into single polygon if possible
+        Polygon finalPolygon;
+        if (unifiedGeometry is Polygon singlePolygon)
+        {
+            finalPolygon = singlePolygon;
+        }
+        else if (unifiedGeometry is MultiPolygon multiPolygon)
+        {
+            Console.WriteLine($"Union resulted in MultiPolygon with {multiPolygon.NumGeometries} parts");
+            
+            // Take the largest polygon or create a convex hull
+            var largestPolygon = multiPolygon.Geometries
+                .OfType<Polygon>()
+                .OrderByDescending(p => p.Area)
+                .FirstOrDefault();
+                
+            if (largestPolygon != null)
+            {
+                finalPolygon = largestPolygon;
+                Console.WriteLine("Using largest polygon from MultiPolygon result");
+            }
+            else
+            {
+                // Create convex hull as fallback
+                var convexHull = unifiedGeometry.ConvexHull();
+                finalPolygon = convexHull as Polygon ?? geometryFactory.CreatePolygon();
+                Console.WriteLine("Using convex hull as fallback");
+            }
+        }
+        else
+        {
+            // Create convex hull from all points as final fallback
+            var convexHull = unifiedGeometry.ConvexHull();
+            finalPolygon = convexHull as Polygon ?? geometryFactory.CreatePolygon();
+            Console.WriteLine("Using convex hull from union result");
+        }
+        
+        // Smooth the polygon to make it more readable
+        Console.WriteLine("Smoothing polygon for better readability...");
+        var smoothedPolygon = SmoothPolygon(finalPolygon, geometryFactory);
+        smoothedPolygon.SRID = 4326;
+        
+        // Validate final polygon
+        if (!smoothedPolygon.IsValid)
+        {
+            Console.WriteLine("Smoothed polygon is invalid, attempting to fix...");
+            var buffered = smoothedPolygon.Buffer(0.0);
+            if (buffered is Polygon fixedPolygon && fixedPolygon.IsValid)
+            {
+                smoothedPolygon = fixedPolygon;
+                smoothedPolygon.SRID = 4326;
+            }
+        }
+        
+        // Calculate final area
+        var metersPerDegLat = 111320.0;
+        var avgLatitude = smoothedPolygon.Centroid.Y;
+        var metersPerDegLon = 111320.0 * Math.Cos(avgLatitude * Math.PI / 180.0);
+        var unifiedAreaM2 = smoothedPolygon.Area * metersPerDegLat * metersPerDegLon;
+        
+        // Create feature record for unified coverage
+        var unifiedFeature = new FeatureRecord(
+            smoothedPolygon,
+            new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["total_polygons"] = allPolygons.Count.ToString(CultureInfo.InvariantCulture),
+                ["total_area_m2"] = unifiedAreaM2.ToString("F1", CultureInfo.InvariantCulture),
+                ["created_at"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["description"] = "Unified scent detection coverage area combining all individual rover measurements"
+            }
+        );
+        
+        // Insert the unified polygon
+        await unifiedLayer.BulkInsertAsync(
+            new[] { unifiedFeature },
+            new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: true, ConflictPolicy: ConflictPolicy.Replace),
+            null,
+            CancellationToken.None
+        );
+        
+        Console.WriteLine("✅ Unified coverage polygon created successfully!");
+        Console.WriteLine($"   Combined {allPolygons.Count} individual polygons");
+        Console.WriteLine($"   Total coverage area: {unifiedAreaM2:F0} m² ({unifiedAreaM2 / 10000:F1} hectares)");
+        Console.WriteLine($"   Vertices in smoothed polygon: {smoothedPolygon.NumPoints}");
+        Console.WriteLine($"   Layer name: unified_scent_coverage");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Error creating unified coverage layer: {ex.Message}");
+        Console.WriteLine("Individual polygons are still available in the main layer.");
+    }
+}
+
+/// <summary>
+/// Smooths a polygon to make it more readable by reducing vertex count and creating smoother edges
+/// </summary>
+static Polygon SmoothPolygon(Polygon polygon, GeometryFactory geometryFactory)
+{
+    try
+    {
+        // Apply Douglas-Peucker simplification with a small tolerance
+        var envelope = polygon.EnvelopeInternal;
+        var tolerance = Math.Min(envelope.Width, envelope.Height) * 0.01; // 1% of smallest dimension
+        
+        var simplified = polygon.Buffer(tolerance * 0.5).Buffer(-tolerance * 0.5); // Smooth and simplify
+        
+        if (simplified is Polygon smoothedPolygon && smoothedPolygon.IsValid)
+        {
+            return smoothedPolygon;
+        }
+        
+        // Fallback: just buffer slightly to smooth edges
+        var buffered = polygon.Buffer(tolerance * 0.1);
+        if (buffered is Polygon fallbackPolygon && fallbackPolygon.IsValid)
+        {
+            return fallbackPolygon;
+        }
+        
+        // Final fallback: return original polygon
+        return polygon;
+    }
+    catch
+    {
+        // Return original polygon if smoothing fails
+        return polygon;
+    }
 }

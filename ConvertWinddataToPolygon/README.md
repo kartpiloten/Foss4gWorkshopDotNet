@@ -1,29 +1,33 @@
 # Wind Data to Polygon Converter
 
-This project converts rover wind measurement data into scent detection polygons that represent areas where a dog at the rover's position could detect human scent based on wind direction and speed.
+This project converts rover wind measurement data into comprehensive scent detection polygons that represent areas where a dog at the rover's position could detect human scent based on wind direction, speed, and the dog's natural omnidirectional scent detection ability.
 
 ## Overview
 
-The converter reads rover data from `rover_data.gpkg` and creates a new GeoPackage file `rover_windpolygon.gpkg` containing polygon features that represent scent detection areas.
+The converter reads rover data from `rover_data.gpkg` and creates a new GeoPackage file `rover_windpolygon.gpkg` containing polygon features that represent realistic canine scent detection areas.
 
-## Scent Model
+## Enhanced Scent Model
 
-Each polygon represents the upwind area where a dog standing at the rover's position could potentially detect human scent. The model considers:
+Each polygon represents a **comprehensive scent detection zone** combining two key aspects:
 
-### Wind Speed Effects
-- **Light wind (< 0.5 m/s)**: Limited scent transport, ~30m range
-- **Light wind (0.5-2.0 m/s)**: Good scent transport, 50-80m range  
-- **Moderate wind (2.0-5.0 m/s)**: Optimal conditions, 80-125m range
-- **Strong wind (5.0-8.0 m/s)**: Some dilution, 125-155m range
-- **Very strong wind (> 8.0 m/s)**: Significant dilution, decreasing range
+### 1. Omnidirectional Detection (30m Buffer)
+- **30-meter circular buffer** around the dog's position
+- Represents baseline scent detection ability in all directions
+- Accounts for the dog's natural ability to detect nearby scents regardless of wind
 
-### Fan Shape
-- The polygon starts narrow at the dog's position (apex)
-- Expands in the upwind direction based on scent dispersion
-- Fan angle varies with wind speed:
-  - Light wind: ±45° (wide dispersion)
-  - Moderate wind: ±25-35° 
-  - Strong wind: ±10-16° (narrow, focused cone)
+### 2. Upwind Enhanced Detection (Wind-Dependent Fan)
+- **Fan-shaped extension** from dog's nose expanding upwind
+- **Wind speed affects both distance and angle**:
+  - Light wind (< 2 m/s): 50-80m range, wide ±30° dispersion
+  - Moderate wind (2-5 m/s): 80-125m range, optimal conditions  
+  - Strong wind (5-8 m/s): 125-155m range, narrower ±10-16° cone
+  - Very strong wind (> 8 m/s): Reduced range due to dilution
+
+### Combined Detection Zone
+- **Union operation** combines the circular buffer and upwind fan
+- Results in a **teardrop or comet-shaped polygon**
+- Narrow tail pointing downwind, wide bulbous area upwind
+- Realistic representation of canine scent detection capabilities
 
 ## Output Schema
 
@@ -34,7 +38,7 @@ The wind polygon GeoPackage contains the following attributes:
 - `recorded_at`: Timestamp of measurement
 - `wind_direction_deg`: Wind direction in degrees (0° = North)
 - `wind_speed_mps`: Wind speed in meters per second
-- `scent_area_m2`: Approximate scent detection area in square meters
+- `scent_area_m2`: Total scent detection area in square meters
 - `max_distance_m`: Maximum scent detection distance in meters
 
 ## Usage
@@ -45,14 +49,24 @@ dotnet run
 
 The program will:
 1. Read rover measurements from `C:\temp\Rover1\rover_data.gpkg`
-2. Generate scent polygons for each measurement
+2. Generate comprehensive scent polygons for each measurement
 3. Save results to `C:\temp\Rover1\rover_windpolygon.gpkg`
+4. Export alternative GeoJSON format for web compatibility
 
 ## Visualization
 
 Open the output GeoPackage in QGIS, ArcGIS, or other GIS software to visualize:
 - The rover track (points from rover_data.gpkg)
-- Scent detection areas (polygons from rover_windpolygon.gpkg)
-- Wind vectors and detection zones
+- Comprehensive scent detection areas (polygons from rover_windpolygon.gpkg)
+- Wind vectors and enhanced detection zones
+- Overlapping scent areas showing cumulative coverage
 
-This is useful for search and rescue applications, environmental monitoring, and understanding scent dispersion patterns in the field.
+## Scientific Basis
+
+This model combines:
+- **Atmospheric scent transport** (wind-dependent dispersion)
+- **Canine olfactory capabilities** (omnidirectional detection)
+- **Environmental factors** (wind speed effects on scent dilution)
+- **Realistic detection distances** based on search and rescue research
+
+Perfect for search and rescue applications, environmental monitoring, and understanding comprehensive scent dispersion patterns in the field! ????

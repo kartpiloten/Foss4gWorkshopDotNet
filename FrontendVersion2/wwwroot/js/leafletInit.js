@@ -1,10 +1,12 @@
 window.initLeafletMap = async function () {
   console.log('Starting Leaflet map initialization...');
   
-  // Global variables for rover tracking
+  // Global variables for rover tracking and wind visualization
   let roverLayer = null;
   let roverTrailLayer = null;
   let windArrowsLayer = null;
+  let windPolygonsLayer = null;        // New: Individual wind feather polygons
+  let combinedCoverageLayer = null;    // New: Combined coverage area
   let clientId = 'client_' + Math.random().toString(36).substr(2, 9);
   let updateInterval = null;
   
@@ -70,6 +72,7 @@ window.initLeafletMap = async function () {
     console.log('Base map initialized, now loading forest polygon...');
 
     // Load and display the RiverHead Forest polygon
+    let forestLayer = null;
     try {
       console.log('Fetching forest polygon...');
       const forestResp = await fetch('/api/riverhead-forest');
@@ -78,7 +81,7 @@ window.initLeafletMap = async function () {
           const geoJson = await forestResp.json();
           console.log('Forest polygon received:', geoJson);
           
-          const forestLayer = L.geoJSON(geoJson, {
+          forestLayer = L.geoJSON(geoJson, {
             style: {
               color: '#2d5a27',      // Dark green border
               fillColor: '#4a7c59',  // Forest green fill
@@ -115,27 +118,44 @@ window.initLeafletMap = async function () {
       console.error('Exception while fetching RiverHead Forest polygon:', fetchError);
     }
 
-    // Initialize rover layers
-    console.log('Initializing rover data layers...');
+    // Initialize all layers with proper ordering (background to foreground)
+    console.log('Initializing all data layers...');
     
-    // Layer for rover trail (all historical points)
-    roverTrailLayer = L.layerGroup().addTo(map);
+    // Layer 1: Combined coverage (background - shows total scent detection area)
+    combinedCoverageLayer = L.layerGroup();
     
-    // Layer for wind arrows
-    windArrowsLayer = L.layerGroup().addTo(map);
+    // Layer 2: Individual wind feather polygons (middle layer)
+    windPolygonsLayer = L.layerGroup();
     
-    // Layer for current rover position
-    roverLayer = L.layerGroup().addTo(map);
+    // Layer 3: Rover trail (historical path)
+    roverTrailLayer = L.layerGroup();
+    
+    // Layer 4: Wind arrows (detailed wind data)
+    windArrowsLayer = L.layerGroup();
+    
+    // Layer 5: Current rover position (top layer)
+    roverLayer = L.layerGroup();
 
-    // Load initial rover data
+    // Add layers to map in order (background to foreground)
+    combinedCoverageLayer.addTo(map);
+    windPolygonsLayer.addTo(map);
+    roverTrailLayer.addTo(map);
+    windArrowsLayer.addTo(map);
+    roverLayer.addTo(map);
+
+    // Load initial data
+    await loadCombinedCoverage();
+    await loadWindPolygons();
     await loadInitialRoverData();
 
     // Start real-time updates
     startRoverDataUpdates();
 
-    // Add layer control
+    // Add layer control with proper ordering
     const overlayMaps = {
       "Forest Boundary": forestLayer,
+      "Combined Coverage": combinedCoverageLayer,
+      "Wind Polygons": windPolygonsLayer,
       "Rover Trail": roverTrailLayer,
       "Wind Arrows": windArrowsLayer,
       "Current Rover": roverLayer
@@ -143,7 +163,114 @@ window.initLeafletMap = async function () {
     
     L.control.layers(null, overlayMaps).addTo(map);
 
-    console.log('Map initialization completed with rover tracking and wind visualization');
+    console.log('Map initialization completed with all wind visualization layers');
+
+    // ====== NEW FUNCTIONS FOR WIND POLYGON VISUALIZATION ======
+
+    // Function to load combined coverage area (background layer)
+    async function loadCombinedCoverage() {
+      try {
+        console.log('Loading combined coverage area...');
+        const resp = await fetch('/api/combined-coverage');
+        
+        if (resp.ok) {
+          const coverageData = await resp.json();
+          console.log('Combined coverage loaded:', coverageData.features.length, 'polygons');
+          
+          if (coverageData.features.length > 0) {
+            const coverage = L.geoJSON(coverageData, {
+              style: {
+                color: '#8B4513',        // Brown border
+                fillColor: '#DEB887',    // Tan/beige fill
+                weight: 2,
+                opacity: 0.9,
+                fillOpacity: 0.4,       // Very transparent background
+                dashArray: '5,5'         // Dashed line to distinguish from forest
+              },
+              onEachFeature: (feature, layer) => {
+                const props = feature.properties;
+                const areakm2 = (props.totalAreaM2 / 1000000).toFixed(2);
+                const areaha = (props.totalAreaM2 / 10000).toFixed(1);
+                layer.bindPopup(`
+                  <b>Combined Scent Detection Area</b><br/>
+                  Total Area: ${areakm2} km² (${areaha} hectares)<br/>
+                  Based on: ${props.totalPolygons} measurements<br/>
+                  Created: ${new Date(props.createdAt).toLocaleString()}<br/>
+                  ${props.description}
+                `);
+              }
+            });
+            
+            combinedCoverageLayer.clearLayers();
+            combinedCoverageLayer.addLayer(coverage);
+            
+            console.log('Combined coverage area displayed successfully');
+          }
+        } else if (resp.status !== 404) {
+          console.warn('Failed to load combined coverage:', resp.status);
+        }
+      } catch (error) {
+        console.error('Error loading combined coverage:', error);
+      }
+    }
+
+    // Function to load wind feather polygons (foreground layer)
+    async function loadWindPolygons() {
+      try {
+        console.log('Loading wind feather polygons...');
+        const resp = await fetch('/api/wind-polygons');
+        
+        if (resp.ok) {
+          const polygonData = await resp.json();
+          console.log('Wind polygons loaded:', polygonData.features.length, 'polygons');
+          
+          if (polygonData.features.length > 0) {
+            // Only show the latest few polygons to avoid clutter
+            const latestPolygons = polygonData.features.slice(0, 20); // Latest 20 polygons
+            
+            const windPolygons = L.geoJSON({ type: "FeatureCollection", features: latestPolygons }, {
+              style: (feature) => {
+                const windSpeed = feature.properties.windSpeedMps;
+                return {
+                  color: getWindSpeedColor(windSpeed),
+                  fillColor: getWindSpeedColor(windSpeed),
+                  weight: 2,
+                  opacity: 0.8,
+                  fillOpacity: 0.3,
+                  dashArray: windSpeed > 5 ? null : '3,3'  // Dashed for low wind
+                };
+              },
+              onEachFeature: (feature, layer) => {
+                const props = feature.properties;
+                const aream2 = Math.round(props.scentAreaM2);
+                const maxDist = Math.round(props.maxDistanceM);
+                const windDir = getWindDirectionName(props.windDirectionDeg);
+                
+                layer.bindPopup(`
+                  <b>Wind Feather Detection Zone</b><br/>
+                  Sequence: ${props.sequence}<br/>
+                  Time: ${new Date(props.recordedAt).toLocaleString()}<br/>
+                  Wind: ${props.windSpeedMps.toFixed(1)} m/s from ${windDir} (${props.windDirectionDeg}°)<br/>
+                  Detection Area: ${aream2} m²<br/>
+                  Max Distance: ${maxDist} m
+                `);
+              }
+            });
+            
+            windPolygonsLayer.clearLayers();
+            windPolygonsLayer.addLayer(windPolygons);
+            
+            console.log('Wind feather polygons displayed successfully');
+          }
+        } else if (resp.status !== 404) {
+          console.warn('Failed to load wind polygons:', resp.status);
+        }
+      } catch (error) {
+        console.error('Error loading wind polygons:', error);
+      }
+    }
+
+    // ====== EXISTING FUNCTIONS (with minor updates) ======
 
     // Helper function to get wind speed color
     function getWindSpeedColor(windSpeed) {
@@ -203,6 +330,11 @@ window.initLeafletMap = async function () {
               // Update current position
               const latestPoint = updatesData.features[updatesData.features.length - 1];
               displayCurrentRoverPosition(latestPoint);
+              
+              // Reload wind polygons to show new data (less frequent updates)
+              if (updatesData.features.length > 5) {
+                await loadWindPolygons();
+              }
             }
           } else {
             console.warn('Failed to get rover updates:', updatesResp.status);
@@ -258,7 +390,7 @@ window.initLeafletMap = async function () {
       });
     }
 
-    // Helper function to display wind arrows for all points - COMPLETELY NEW APPROACH
+    // Helper function to display wind arrows for all points
     function displayWindArrows(features) {
       windArrowsLayer.clearLayers();
       
@@ -277,7 +409,7 @@ window.initLeafletMap = async function () {
       });
     }
 
-    // Helper function to add a single wind arrow - COMPLETELY NEW APPROACH using polylines
+    // Helper function to add a single wind arrow using polylines
     function addWindArrow(feature) {
       const props = feature.properties;
       const windSpeed = props.windSpeedMps;
@@ -297,8 +429,6 @@ window.initLeafletMap = async function () {
       const angleRad = ((windDirection + 180) % 360) * Math.PI / 180;
       
       // Calculate end point using approximate lat/lng conversion
-      // 1 degree latitude ? 111,320 meters
-      // 1 degree longitude ? 111,320 * cos(latitude) meters
       const latOffset = (arrowLengthMeters * Math.sin(angleRad)) / 111320;
       const lngOffset = (arrowLengthMeters * Math.cos(angleRad)) / (111320 * Math.cos(lat * Math.PI / 180));
       
@@ -396,7 +526,7 @@ window.initLeafletMap = async function () {
       });
     }
 
-    // Helper function to display current rover position - UPDATED to use polyline arrows
+    // Helper function to display current rover position
     function displayCurrentRoverPosition(feature) {
       if (!feature) return;
       
