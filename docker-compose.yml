@@ -1,0 +1,23 @@
+name: auckland-rover-db
+services:
+  postgres:
+    build: .
+    container_name: auckland-rover-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: anders
+      POSTGRES_PASSWORD: tua123
+      POSTGRES_DB: AucklandRoverData
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    shm_size: "256m"
+    restart: unless-stopped
+    # (Optional) refuse wrong-arch pulls in the future:
+    platform: linux/arm64/v8
+
+volumes:
+  pgdata:
+    name: auckland_rover_pgdata
+

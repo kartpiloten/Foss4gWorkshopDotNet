@@ -1,5 +1,6 @@
-using MapPiloteGeopackageHelper;
+﻿using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
+using System.Runtime.Intrinsics.X86;
 
 namespace RoverSimulator;
 
@@ -9,9 +10,18 @@ namespace RoverSimulator;
 public static class SimulatorConfiguration
 {
     // Database configuration
-    public const string DEFAULT_DATABASE_TYPE = "geopackage";
-    public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
+    //public const string DEFAULT_DATABASE_TYPE = "geopackage";
+    public const string DEFAULT_DATABASE_TYPE = "postgres";
+
+    //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
+    //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
+    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.97;Port=5432;Username=anders;Password=tua123;SSL Mode = Disable;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
     public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
+
+    // Connection validation settings
+    public const int CONNECTION_TIMEOUT_SECONDS = 10;
+    public const int MAX_RETRY_ATTEMPTS = 3;
+    public const int RETRY_DELAY_MS = 2000;
 
     // Forest boundary - loaded from GeoPackage
     private static Polygon? _forestBoundary;
@@ -26,6 +36,192 @@ public static class SimulatorConfiguration
     public static double MAX_LATITUDE => GetBoundingBox().MaxY;
     public static double MIN_LONGITUDE => GetBoundingBox().MinX;
     public static double MAX_LONGITUDE => GetBoundingBox().MaxX;
+
+    /// <summary>
+    /// Tests PostgreSQL database connectivity with timeout and retry logic
+    /// </summary>
+    public static async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        Console.WriteLine("Testing PostgreSQL connection...");
+        Console.WriteLine($"Target: {GetPostgresServerInfo()}");
+        Console.WriteLine($"Timeout: {CONNECTION_TIMEOUT_SECONDS} seconds");
+        
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++)
+        {
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(TimeSpan.FromSeconds(CONNECTION_TIMEOUT_SECONDS));
+                
+                // Create test repository to validate connection
+                using var testRepo = new PostgresRoverDataRepository(POSTGRES_CONNECTION_STRING);
+                
+                Console.WriteLine($"  Attempt {attempt}/{MAX_RETRY_ATTEMPTS}: Connecting...");
+                
+                // Try to initialize - this will test the full connection including database creation
+                await testRepo.InitializeAsync(cts.Token);
+                
+                Console.WriteLine("  SUCCESS: PostgreSQL connection established!");
+                return (true, string.Empty);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return (false, "Connection test cancelled by user");
+            }
+            catch (OperationCanceledException)
+            {
+                var message = $"  TIMEOUT: Connection attempt {attempt} timed out after {CONNECTION_TIMEOUT_SECONDS} seconds";
+                Console.WriteLine(message);
+                
+                if (attempt == MAX_RETRY_ATTEMPTS)
+                {
+                    return (false, $"Connection failed: All {MAX_RETRY_ATTEMPTS} attempts timed out after {CONNECTION_TIMEOUT_SECONDS} seconds each");
+                }
+            }
+            catch (Exception ex)
+            {
+                var message = $"  ERROR: Connection attempt {attempt} failed: {ex.Message}";
+                Console.WriteLine(message);
+                
+                // For specific error types, don't retry
+                if (ex.Message.Contains("authentication failed") || 
+                    ex.Message.Contains("database") && ex.Message.Contains("does not exist") ||
+                    ex.Message.Contains("permission denied"))
+                {
+                    return (false, $"Connection failed: {ex.Message}");
+                }
+                
+                if (attempt == MAX_RETRY_ATTEMPTS)
+                {
+                    return (false, $"Connection failed after {MAX_RETRY_ATTEMPTS} attempts: {ex.Message}");
+                }
+            }
+            
+            if (attempt < MAX_RETRY_ATTEMPTS)
+            {
+                Console.WriteLine($"  Waiting {RETRY_DELAY_MS}ms before retry...");
+                await Task.Delay(RETRY_DELAY_MS, cancellationToken);
+            }
+        }
+        
+        return (false, "Connection failed: Unknown error");
+    }
+
+    /// <summary>
+    /// Gets a human-readable description of the PostgreSQL server info
+    /// </summary>
+    private static string GetPostgresServerInfo()
+    {
+        try
+        {
+            var connectionString = POSTGRES_CONNECTION_STRING;
+            var parts = new List<string>();
+            
+            if (connectionString.Contains("Host="))
+            {
+                var host = ExtractConnectionStringValue(connectionString, "Host");
+                var port = ExtractConnectionStringValue(connectionString, "Port") ?? "5432";
+                parts.Add($"{host}:{port}");
+            }
+            
+            var database = ExtractConnectionStringValue(connectionString, "Database");
+            if (!string.IsNullOrEmpty(database))
+            {
+                parts.Add($"Database: {database}");
+            }
+            
+            var username = ExtractConnectionStringValue(connectionString, "Username");
+            if (!string.IsNullOrEmpty(username))
+            {
+                parts.Add($"User: {username}");
+            }
+            
+            return parts.Any() ? string.Join(", ", parts) : "PostgreSQL";
+        }
+        catch
+        {
+            return "PostgreSQL";
+        }
+    }
+
+    private static string? ExtractConnectionStringValue(string connectionString, string key)
+    {
+        try
+        {
+            var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            var keyValue = parts.FirstOrDefault(p => p.Trim().StartsWith($"{key}=", StringComparison.OrdinalIgnoreCase));
+            return keyValue?.Substring(keyValue.IndexOf('=') + 1).Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Creates the appropriate data repository with connection validation (no automatic fallback)
+    /// </summary>
+    public static async Task<IRoverDataRepository> CreateRepositoryWithValidationAsync(string databaseType, CancellationToken cancellationToken = default)
+    {
+        Console.WriteLine($"\n{new string('=', 60)}");
+        Console.WriteLine("DATABASE CONNECTION SETUP");
+        Console.WriteLine($"{new string('=', 60)}");
+        Console.WriteLine($"Database type: {databaseType.ToUpper()}");
+        
+        if (databaseType.ToLower() == "postgres")
+        {
+            var (isConnected, errorMessage) = await TestPostgresConnectionAsync(cancellationToken);
+            
+            if (isConnected)
+            {
+                Console.WriteLine("✅ PostgreSQL connection successful - using PostgreSQL database");
+                Console.WriteLine($"{new string('=', 60)}");
+                return new PostgresRoverDataRepository(POSTGRES_CONNECTION_STRING);
+            }
+            else
+            {
+                Console.WriteLine($"❌ PostgreSQL connection failed: {errorMessage}");
+                Console.WriteLine();
+                Console.WriteLine("NETWORK TROUBLESHOOTING:");
+                Console.WriteLine($"- Check if PostgreSQL server is running on {GetPostgresServerInfo()}");
+                Console.WriteLine("- Verify network connectivity to the database server");
+                Console.WriteLine("- Check firewall settings on both client and server");
+                Console.WriteLine("- Ensure PostgreSQL is configured to accept connections");
+                Console.WriteLine("- Verify credentials and database permissions");
+                Console.WriteLine();
+                Console.WriteLine("DATABASE CONFIGURATION OPTIONS:");
+                Console.WriteLine("1. Fix the PostgreSQL connection issue above");
+                Console.WriteLine("2. Change DEFAULT_DATABASE_TYPE to \"geopackage\" in SimulatorConfiguration.cs");
+                Console.WriteLine("3. Use a local PostgreSQL instance (change connection string)");
+                Console.WriteLine($"{new string('=', 60)}");
+                
+                throw new InvalidOperationException($"PostgreSQL connection failed: {errorMessage}. Please fix the connection issue or change to a different database type.");
+            }
+        }
+        else if (databaseType.ToLower() == "geopackage")
+        {
+            Console.WriteLine("✅ Using GeoPackage database (local file storage)");
+            Console.WriteLine($"{new string('=', 60)}");
+            return new GeoPackageRoverDataRepository(GEOPACKAGE_FOLDER_PATH);
+        }
+        else
+        {
+            throw new ArgumentException($"Unsupported database type: {databaseType}. Use 'postgres' or 'geopackage'.");
+        }
+    }
+
+    /// <summary>
+    /// Creates the appropriate data repository based on database type (legacy method)
+    /// </summary>
+    public static IRoverDataRepository CreateRepository(string databaseType)
+    {
+        return databaseType.ToLower() switch
+        {
+            "postgres" => new PostgresRoverDataRepository(POSTGRES_CONNECTION_STRING),
+            "geopackage" => new GeoPackageRoverDataRepository(GEOPACKAGE_FOLDER_PATH),
+            _ => throw new ArgumentException($"Unsupported database type: {databaseType}")
+        };
+    }
 
     /// <summary>
     /// Gets the forest boundary polygon from the GeoPackage file
@@ -225,18 +421,5 @@ public static class SimulatorConfiguration
             Console.WriteLine($"Error verifying GeoPackage: {ex.Message}");
             return false;
         }
-    }
-
-    /// <summary>
-    /// Creates the appropriate data repository based on database type
-    /// </summary>
-    public static IRoverDataRepository CreateRepository(string databaseType)
-    {
-        return databaseType.ToLower() switch
-        {
-            "postgres" => new PostgresRoverDataRepository(POSTGRES_CONNECTION_STRING),
-            "geopackage" => new GeoPackageRoverDataRepository(GEOPACKAGE_FOLDER_PATH),
-            _ => throw new ArgumentException($"Unsupported database type: {databaseType}")
-        };
     }
 }

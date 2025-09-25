@@ -19,11 +19,12 @@ Console.CancelKeyPress += (s, e) =>
     cts.Cancel();
 };
 
-Console.WriteLine($"Rover simulator starting with {DATABASE_TYPE.ToUpper()} database. Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
+Console.WriteLine($"Rover simulator starting with {DATABASE_TYPE.ToUpper()} database.");
+Console.WriteLine("Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
 Console.WriteLine("Run with '--verify' argument to check existing GeoPackage contents.");
 
 // Load forest boundary from GeoPackage
-Console.WriteLine("Loading forest boundary from RiverHeadForest.gpkg...");
+Console.WriteLine("\nLoading forest boundary from RiverHeadForest.gpkg...");
 try
 {
     await SimulatorConfiguration.GetForestBoundaryAsync();
@@ -38,13 +39,40 @@ catch (Exception ex)
 // Set up progress monitoring
 using var progressMonitor = new ProgressMonitor(cts);
 
-// Create appropriate repository based on configuration
-var repository = SimulatorConfiguration.CreateRepository(DATABASE_TYPE);
+// Create appropriate repository with connection validation (no automatic fallback)
+IRoverDataRepository repository;
+try
+{
+    repository = await SimulatorConfiguration.CreateRepositoryWithValidationAsync(DATABASE_TYPE, cts.Token);
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Database setup cancelled by user.");
+    return;
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($"\nDatabase connection failed: {ex.Message}");
+    Console.WriteLine("\nSimulation cannot proceed without a valid database connection.");
+    Console.WriteLine("Please resolve the database connection issue and try again.");
+    return;
+}
+catch (ArgumentException ex)
+{
+    Console.WriteLine($"Configuration error: {ex.Message}");
+    return;
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Unexpected error creating database repository: {ex.Message}");
+    Console.WriteLine("Cannot proceed without a database connection.");
+    return;
+}
 
 try
 {
     // For GeoPackage, check file lock status before attempting to delete
-    if (DATABASE_TYPE.ToLower() == "geopackage" && repository is GeoPackageRoverDataRepository geoRepo)
+    if (repository is GeoPackageRoverDataRepository geoRepo)
     {
         Console.WriteLine("\n" + new string('=', 60));
         Console.WriteLine("GEOPACKAGE FILE LOCK CHECK");
@@ -112,10 +140,39 @@ try
         Console.WriteLine(new string('=', 60));
     }
 
-    // Reset and initialize database (this will delete the existing GeoPackage file)
+    // Reset and initialize database
     Console.WriteLine("\nInitializing database...");
-    await repository.ResetDatabaseAsync(cts.Token);
-    await repository.InitializeAsync(cts.Token);
+    try
+    {
+        await repository.ResetDatabaseAsync(cts.Token);
+        await repository.InitializeAsync(cts.Token);
+        Console.WriteLine("Database initialization completed successfully!");
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("Database initialization cancelled by user.");
+        return;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Database initialization failed: {ex.Message}");
+        if (ex.InnerException != null)
+        {
+            Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+        }
+        
+        // Provide specific troubleshooting based on the exception
+        if (ex.Message.Contains("timeout") || ex.Message.Contains("connection"))
+        {
+            Console.WriteLine("\nDATABASE CONNECTION TROUBLESHOOTING:");
+            Console.WriteLine("- Network connectivity issues to the database server");
+            Console.WriteLine("- Database server may be overloaded or not responding");
+            Console.WriteLine("- Firewall blocking the connection");
+            Console.WriteLine("- Database server not running");
+        }
+        
+        throw; // Re-throw to be caught by outer try-catch
+    }
 
     // Initialize rover position with smoother movement parameters
     var rng = new Random();
@@ -162,7 +219,7 @@ try
     Console.WriteLine("- Weather patterns lasting 3-10 minutes");
     Console.WriteLine("- Balanced movement (40% smoother than original, but not too stable)");
     Console.WriteLine("- Natural environmental modeling with appropriate variation");
-    Console.WriteLine("GeoPackage file: rover_data.gpkg (fixed filename, recreated each run)");
+    Console.WriteLine($"Data storage: {(repository is PostgresRoverDataRepository ? "PostgreSQL database" : "GeoPackage file (rover_data.gpkg)")}");
     Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
 
     while (!cts.IsCancellationRequested)
@@ -192,8 +249,16 @@ try
             position.ToGeometry()
         );
 
-        // Insert measurement
-        await repository.InsertMeasurementAsync(measurement, cts.Token);
+        // Insert measurement with error handling
+        try
+        {
+            await repository.InsertMeasurementAsync(measurement, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\nError inserting measurement: {ex.Message}");
+            throw; // Re-throw to stop simulation on database errors
+        }
 
         // Report progress
         ProgressMonitor.ReportProgress(
@@ -233,6 +298,14 @@ catch (Exception ex)
         Console.WriteLine("- Wait a few seconds and try again");
         Console.WriteLine("- If problem persists, restart your computer");
     }
+    else if (ex.Message.Contains("timeout") || ex.Message.Contains("connection"))
+    {
+        Console.WriteLine("\nDATABASE CONNECTION TROUBLESHOOTING:");
+        Console.WriteLine("- Check network connectivity to the database server");
+        Console.WriteLine("- Verify the database server is running and accessible");
+        Console.WriteLine("- Check firewall settings on both client and server");
+        Console.WriteLine("- Change DEFAULT_DATABASE_TYPE to \"geopackage\" in SimulatorConfiguration.cs to use local storage");
+    }
 }
 finally
 {
@@ -244,4 +317,11 @@ finally
 }
 
 Console.WriteLine("\nRover simulator stopped.");
-Console.WriteLine("The GeoPackage file should now be available for other applications.");
+if (repository is GeoPackageRoverDataRepository)
+{
+    Console.WriteLine("The GeoPackage file should now be available for other applications.");
+}
+else
+{
+    Console.WriteLine("Database connection closed.");
+}
