@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -6,12 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.0" />
-    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
-    <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj" />

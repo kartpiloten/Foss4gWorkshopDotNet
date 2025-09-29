@@ -1,9 +1,11 @@
 using NetTopologySuite.Geometries;
 using Npgsql;
-using System.Globalization;
 
-namespace ReadRoverDBStub;
+namespace ReadRoverDBStubLibrary;
 
+/// <summary>
+/// PostgreSQL rover data reader (silent library version)
+/// </summary>
 public class PostgresRoverDataReader : RoverDataReaderBase
 {
     private NpgsqlDataSource? _dataSource;
@@ -17,18 +19,13 @@ public class PostgresRoverDataReader : RoverDataReaderBase
     {
         try
         {
-            Console.WriteLine("Initializing PostgreSQL connection for reading...");
-            
             // Build an Npgsql data source with NetTopologySuite enabled for PostGIS geometry mapping
             _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
                 .UseNetTopologySuite()
                 .Build();
             
-            Console.WriteLine("Opening database connection...");
             _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-            Console.WriteLine("Testing access to rover data table...");
-            
             // Test if the table exists and is accessible
             const string testSql = @"
                 SELECT COUNT(*) FROM roverdata.rover_measurements LIMIT 1;
@@ -36,12 +33,9 @@ public class PostgresRoverDataReader : RoverDataReaderBase
             
             await using var testCmd = new NpgsqlCommand(testSql, _connection);
             await testCmd.ExecuteScalarAsync(cancellationToken);
-
-            Console.WriteLine("PostgreSQL reader initialization completed successfully!");
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine("PostgreSQL reader initialization cancelled.");
             throw;
         }
         catch (NpgsqlException ex) when (ex.Message.Contains("timeout"))
@@ -58,8 +52,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error during PostgreSQL reader initialization: {ex.Message}");
-            throw;
+            throw new InvalidOperationException($"Error during PostgreSQL reader initialization: {ex.Message}", ex);
         }
     }
 
@@ -235,12 +228,10 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 {
                     _connection?.Dispose();
                     _dataSource?.Dispose();
-                    
-                    Console.WriteLine("PostgreSQL reader connection resources disposed.");
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Console.WriteLine($"Error disposing PostgreSQL reader resources: {ex.Message}");
+                    // Silent disposal - no console output
                 }
             }
             base.Dispose(disposing);

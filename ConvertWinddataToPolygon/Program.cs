@@ -1,6 +1,6 @@
 ﻿using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
-using ReadRoverDBStub;
+using ReadRoverDBStubLibrary;
 using System.Globalization;
 using System.Linq;
 using ConvertWinddataToPolygon;
@@ -25,6 +25,7 @@ try
     Console.WriteLine($"📖 Reading rover data from: {inputGeopackagePath}");
     
     // Initialize rover data reader
+    // Direct instantiation is appropriate here since we're reading from a specific known file
     using var roverReader = new GeoPackageRoverDataReader(inputGeopackagePath);
     await roverReader.InitializeAsync();
     

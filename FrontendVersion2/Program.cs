@@ -8,6 +8,7 @@ using NetTopologySuite.IO;
 using NetTopologySuite.Geometries;
 using System.Collections.Concurrent;
 using System.Globalization;
+using ReadRoverDBStubLibrary;
 
 // ====== Application Startup (Top-level statements) ======
 
@@ -29,21 +30,29 @@ builder.Services.AddServerSideBlazor()
         }
     });
 
-// Add rover data reader with fallback
+// Add rover data reader with proper configuration
 builder.Services.AddSingleton<IRoverDataReader>(provider =>
 {
     var logger = provider.GetRequiredService<ILogger<IRoverDataReader>>();
     try
     {
-        const string geopackageFolderPath = @"C:\temp\Rover1\";
-        
-        if (!Directory.Exists(geopackageFolderPath))
+        // FrontendVersion2 application configuration
+        var config = new DatabaseConfiguration
         {
-            Directory.CreateDirectory(geopackageFolderPath);
+            DatabaseType = "geopackage",
+            GeoPackageFolderPath = @"C:\temp\Rover1\",
+            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
+            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+        };
+        
+        if (!Directory.Exists(config.GeoPackageFolderPath))
+        {
+            Directory.CreateDirectory(config.GeoPackageFolderPath);
         }
         
-        var reader = new GeoPackageRoverDataReader(geopackageFolderPath);
-        logger.LogInformation("Rover data reader configured for path: {Path}", geopackageFolderPath);
+        var reader = RoverDataReaderFactory.CreateReader(config);
+        logger.LogInformation("Rover data reader configured for path: {Path}", config.GeoPackageFolderPath);
         return reader;
     }
     catch (Exception ex)
@@ -560,155 +569,4 @@ catch (Exception ex)
     Console.WriteLine($"Application failed to start: {ex.Message}");
     logger.LogCritical(ex, "Application failed to start");
     throw;
-}
-
-// ====== Rover Data Reader Classes ======
-
-/// <summary>
-/// Rover measurement data record
-/// </summary>
-public record RoverMeasurement(
-    Guid SessionId,
-    int Sequence,
-    DateTimeOffset RecordedAt,
-    double Latitude,
-    double Longitude,
-    short WindDirectionDeg,
-    float WindSpeedMps,
-    Point Geometry);
-
-/// <summary>
-/// Interface for rover data readers
-/// </summary>
-public interface IRoverDataReader : IDisposable
-{
-    Task InitializeAsync(CancellationToken cancellationToken = default);
-    Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default);
-    Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default);
-    Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default);
-    Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// Null rover data reader for when no data is available
-/// </summary>
-public class NullRoverDataReader : IRoverDataReader
-{
-    public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-    public Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default) => Task.FromResult(0L);
-    public Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default) 
-        => Task.FromResult(new List<RoverMeasurement>());
-    public Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
-        => Task.FromResult(new List<RoverMeasurement>());
-    public Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<RoverMeasurement?>(null);
-    public void Dispose() { }
-}
-
-/// <summary>
-/// GeoPackage rover data reader
-/// </summary>
-public class GeoPackageRoverDataReader : IRoverDataReader
-{
-    private GeoPackage? _geoPackage;
-    private GeoPackageLayer? _measurementsLayer;
-    private readonly string _dbPath;
-    private bool _disposed;
-    private const string LayerName = "rover_measurements";
-    private const string FixedFileName = "rover_data.gpkg";
-
-    public GeoPackageRoverDataReader(string folderPath)
-    {
-        var cleanPath = folderPath?.TrimEnd('\\', '/') ?? Environment.CurrentDirectory;
-        _dbPath = Path.Combine(cleanPath, FixedFileName);
-    }
-
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(_dbPath))
-        {
-            throw new FileNotFoundException($"GeoPackage file not found: {_dbPath}");
-        }
-
-        _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
-        _measurementsLayer = await _geoPackage.EnsureLayerAsync(LayerName, new Dictionary<string, string>(), 4326);
-    }
-
-    public async Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default)
-    {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized");
-
-        return await _measurementsLayer.CountAsync();
-    }
-
-    public async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default)
-    {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized");
-
-        var readOptions = new ReadOptions(IncludeGeometry: true, WhereClause: whereClause, OrderBy: "sequence ASC");
-        var measurements = new List<RoverMeasurement>();
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
-        {
-            measurements.Add(ConvertToRoverMeasurement(feature));
-        }
-
-        return measurements;
-    }
-
-    public async Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
-    {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized");
-
-        var readOptions = new ReadOptions(IncludeGeometry: true, WhereClause: $"sequence > {lastSequence}", OrderBy: "sequence ASC");
-        var measurements = new List<RoverMeasurement>();
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
-        {
-            measurements.Add(ConvertToRoverMeasurement(feature));
-        }
-
-        return measurements;
-    }
-
-    public async Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
-    {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized");
-
-        var readOptions = new ReadOptions(IncludeGeometry: true, OrderBy: "sequence DESC", Limit: 1);
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
-        {
-            return ConvertToRoverMeasurement(feature);
-        }
-
-        return null;
-    }
-
-    private static RoverMeasurement ConvertToRoverMeasurement(FeatureRecord feature)
-    {
-        var sessionId = Guid.Parse(feature.Attributes["session_id"] ?? throw new InvalidDataException("Missing session_id"));
-        var sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture);
-        var recordedAt = DateTimeOffset.Parse(feature.Attributes["recorded_at"] ?? throw new InvalidDataException("Missing recorded_at"));
-        var latitude = double.Parse(feature.Attributes["latitude"] ?? "0", CultureInfo.InvariantCulture);
-        var longitude = double.Parse(feature.Attributes["longitude"] ?? "0", CultureInfo.InvariantCulture);
-        var windDirection = short.Parse(feature.Attributes["wind_direction_deg"] ?? "0", CultureInfo.InvariantCulture);
-        var windSpeed = float.Parse(feature.Attributes["wind_speed_mps"] ?? "0", CultureInfo.InvariantCulture);
-
-        return new RoverMeasurement(sessionId, sequence, recordedAt, latitude, longitude, windDirection, windSpeed, (Point)feature.Geometry);
-    }
-
-    public void Dispose()
-    {
-        if (!_disposed)
-        {
-            _measurementsLayer = null;
-            _geoPackage?.Dispose();
-            _disposed = true;
-        }
-    }
 }

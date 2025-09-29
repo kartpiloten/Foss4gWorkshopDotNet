@@ -15,7 +15,7 @@ public static class SimulatorConfiguration
 
     //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
     //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
-    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.97;Port=5432;Username=anders;Password=tua123;SSL Mode = Disable;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
+    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;SSL Mode = Disable;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
     public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
 
     // Connection validation settings

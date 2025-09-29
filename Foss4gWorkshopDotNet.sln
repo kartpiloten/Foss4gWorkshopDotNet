@@ -12,14 +12,18 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solutionresources", "Solutionresources", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 	ProjectSection(SolutionItems) = preProject
 		01_enable_postgis.sql = 01_enable_postgis.sql
+		docker-compose.yml = docker-compose.yml
 		Dockerfile.txt = Dockerfile.txt
 		Solutionresources\RiverHeadForest.gpkg = Solutionresources\RiverHeadForest.gpkg
-		docker-compose.yml = docker-compose.yml
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReadRoverDBStub", "ReadRoverDBStub\ReadRoverDBStub.csproj", "{87C0632E-D136-43F4-8181-4A44C0BBFB57}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConvertWinddataToPolygon", "ConvertWinddataToPolygon\ConvertWinddataToPolygon.csproj", "{5EFFD85E-A3FF-40BC-9142-FCBA150886CF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReadRoverDBStubTester", "ReadRoverDBStubTester\ReadRoverDBStubTester.csproj", "{25A71A30-4369-D07F-33BC-171BEB5FC63A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReadRoverDBStubLibrary", "ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj", "{4020E300-3243-B986-4AB9-C70423ECCD63}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -91,6 +95,30 @@ Global
 		{5EFFD85E-A3FF-40BC-9142-FCBA150886CF}.Release|x64.Build.0 = Release|Any CPU
 		{5EFFD85E-A3FF-40BC-9142-FCBA150886CF}.Release|x86.ActiveCfg = Release|Any CPU
 		{5EFFD85E-A3FF-40BC-9142-FCBA150886CF}.Release|x86.Build.0 = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|x64.Build.0 = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Debug|x86.Build.0 = Debug|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|x64.ActiveCfg = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|x64.Build.0 = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|x86.ActiveCfg = Release|Any CPU
+		{25A71A30-4369-D07F-33BC-171BEB5FC63A}.Release|x86.Build.0 = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|x64.Build.0 = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Debug|x86.Build.0 = Debug|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|x64.ActiveCfg = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|x64.Build.0 = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|x86.ActiveCfg = Release|Any CPU
+		{4020E300-3243-B986-4AB9-C70423ECCD63}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
