@@ -174,13 +174,13 @@ public static class SimulatorConfiguration
             
             if (isConnected)
             {
-                Console.WriteLine("✅ PostgreSQL connection successful - using PostgreSQL database");
+                Console.WriteLine("SUCCESS: PostgreSQL connection successful - using PostgreSQL database");
                 Console.WriteLine($"{new string('=', 60)}");
                 return new PostgresRoverDataRepository(POSTGRES_CONNECTION_STRING);
             }
             else
             {
-                Console.WriteLine($"❌ PostgreSQL connection failed: {errorMessage}");
+                Console.WriteLine($"ERROR: PostgreSQL connection failed: {errorMessage}");
                 Console.WriteLine();
                 Console.WriteLine("NETWORK TROUBLESHOOTING:");
                 Console.WriteLine($"- Check if PostgreSQL server is running on {GetPostgresServerInfo()}");
@@ -200,7 +200,7 @@ public static class SimulatorConfiguration
         }
         else if (databaseType.ToLower() == "geopackage")
         {
-            Console.WriteLine("✅ Using GeoPackage database (local file storage)");
+            Console.WriteLine("SUCCESS: Using GeoPackage database (local file storage)");
             Console.WriteLine($"{new string('=', 60)}");
             return new GeoPackageRoverDataRepository(GEOPACKAGE_FOLDER_PATH);
         }

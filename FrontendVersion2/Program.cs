@@ -9,6 +9,7 @@ using NetTopologySuite.Geometries;
 using System.Collections.Concurrent;
 using System.Globalization;
 using ReadRoverDBStubLibrary;
+using ScentPolygonLibrary;
 
 // ====== Application Startup (Top-level statements) ======
 
@@ -39,28 +40,35 @@ builder.Services.AddSingleton<IRoverDataReader>(provider =>
         // FrontendVersion2 application configuration
         var config = new DatabaseConfiguration
         {
-            DatabaseType = "geopackage",
-            GeoPackageFolderPath = @"C:\temp\Rover1\",
+            DatabaseType = "postgres",
+            PostgresConnectionString = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30",
             ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
             MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
             RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
         };
         
-        if (!Directory.Exists(config.GeoPackageFolderPath))
-        {
-            Directory.CreateDirectory(config.GeoPackageFolderPath);
-        }
-        
+        logger.LogInformation("Configuring PostgreSQL database connection to: {Host}", "192.168.1.254:5432");
         var reader = RoverDataReaderFactory.CreateReader(config);
-        logger.LogInformation("Rover data reader configured for path: {Path}", config.GeoPackageFolderPath);
         return reader;
     }
     catch (Exception ex)
     {
-        logger.LogWarning(ex, "Failed to configure rover data reader - using null reader");
-        return new NullRoverDataReader();
+        logger.LogError(ex, "Failed to configure PostgreSQL reader");
+        throw; // Throw to prevent application from starting without database
     }
 });
+
+// Add ScentPolygonService configuration
+builder.Services.AddSingleton(new ScentPolygonConfiguration
+{
+    OmnidirectionalRadiusMeters = 30.0,
+    FanPolygonPoints = 15,
+    MinimumDistanceMultiplier = 0.4
+});
+
+// Add ScentPolygonService as a hosted service so it starts automatically
+builder.Services.AddSingleton<ScentPolygonService>();
+builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
 
 var app = builder.Build();
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
@@ -120,7 +128,21 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+
+// Configure static files with proper options
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        // Add headers for better debugging
+        if (ctx.File.Name.EndsWith(".js"))
+        {
+            ctx.Context.Response.Headers.Append("Cache-Control", "no-cache");
+            logger.LogInformation("Serving JavaScript file: {Path}", ctx.File.PhysicalPath);
+        }
+    }
+});
+
 app.UseRouting();
 
 app.MapBlazorHub();
@@ -128,6 +150,32 @@ app.MapFallbackToPage("/_Host");
 
 // API Endpoints
 app.MapGet("/api/test", () => Results.Json(new { status = "OK", timestamp = DateTime.UtcNow }));
+
+// Debug endpoint to check JavaScript file
+app.MapGet("/api/debug/js-file", () =>
+{
+    var jsPath = Path.Combine(app.Environment.WebRootPath, "js", "leafletInit.js");
+    var exists = File.Exists(jsPath);
+    
+    if (exists)
+    {
+        var fileInfo = new FileInfo(jsPath);
+        var content = File.ReadAllText(jsPath);
+        var lines = content.Split('\n').Length;
+        
+        return Results.Json(new 
+        {
+            fileExists = true,
+            path = jsPath,
+            size = fileInfo.Length,
+            lastModified = fileInfo.LastWriteTime,
+            lineCount = lines,
+            firstLines = content.Split('\n').Take(5).ToArray()
+        });
+    }
+    
+    return Results.Json(new { fileExists = false, path = jsPath });
+});
 
 app.MapGet("/api/riverhead-forest", async () =>
 {
@@ -361,83 +409,82 @@ app.MapGet("/api/wind-polygons", async () =>
     }
 });
 
-app.MapGet("/api/combined-coverage", async () =>
+app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService, ILogger<Program> logger, HttpContext http) =>
 {
     try
     {
-        var windPolygonPath = FindLatestWindPolygonFile();
-        if (string.IsNullOrEmpty(windPolygonPath) || !File.Exists(windPolygonPath))
+        // Ensure no caching
+        http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+        http.Response.Headers["Pragma"] = "no-cache";
+        http.Response.Headers["Expires"] = "0";
+        http.Response.Headers["ETag"] = $"\"{scentService.UnifiedVersion}\"";
+
+        var measurementCount = scentService.Count;
+        var unified = scentService.GetUnifiedScentPolygonCached();
+        var latestSeq = scentService.LatestPolygon?.Sequence ?? -1;
+        var version = scentService.UnifiedVersion;
+
+        logger.LogInformation("Combined coverage requested: polygons={Count}, version={Version}, latestSeq={LatestSeq}", 
+            measurementCount, version, latestSeq);
+
+        if (unified == null || !unified.IsValid)
         {
-            logger.LogWarning("Combined coverage data not available at path: {Path}", windPolygonPath ?? "null");
+            logger.LogWarning("No valid unified scent polygon available: polygons={Count}, latestSeq={LatestSeq}", 
+                measurementCount, latestSeq);
             return Results.NotFound(new { 
-                error = "Combined coverage data not available", 
-                expectedPath = @"C:\temp\Rover1\rover_windpolygon.gpkg",
-                suggestion = "Run the ConvertWinddataToPolygon tool first to generate the wind polygon data"
+                error = "No valid unified scent polygon available", 
+                details = new { measurementCount, latestSequence = latestSeq, version },
+                timestamp = DateTimeOffset.UtcNow
             });
         }
 
-        logger.LogInformation("Loading combined coverage from: {Path}", windPolygonPath);
+        var geoJsonWriter = new GeoJsonWriter();
+        var geoJsonGeometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonWriter.Write(unified.Polygon));
 
-        using var geoPackage = await GeoPackage.OpenAsync(windPolygonPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("unified_scent_coverage", new Dictionary<string, string>(), 4326);
-        var readOptions = new ReadOptions(IncludeGeometry: true, Limit: 1);
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
+        var response = new
         {
-            if (feature.Geometry is Polygon polygon && polygon.IsValid)
+            type = "FeatureCollection",
+            features = new[]
             {
-                var geoJsonWriter = new GeoJsonWriter();
-                var geoJsonGeometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonWriter.Write(polygon));
-                
-                // Parse with InvariantCulture to handle decimal separators correctly
-                var totalPolygons = int.Parse(feature.Attributes["total_polygons"] ?? "0", CultureInfo.InvariantCulture);
-                var totalAreaM2 = double.Parse(feature.Attributes["total_area_m2"] ?? "0", CultureInfo.InvariantCulture);
-                
-                var geoJsonFeature = new
+                new
                 {
                     type = "Feature",
                     properties = new
                     {
-                        totalPolygons = totalPolygons,
-                        totalAreaM2 = totalAreaM2,
-                        totalAreaHectares = totalAreaM2 / 10000.0,
-                        createdAt = feature.Attributes["created_at"],
-                        description = feature.Attributes["description"],
-                        source = "unified_scent_coverage_layer"
+                        totalPolygons = unified.PolygonCount,
+                        totalAreaM2 = unified.TotalAreaM2,
+                        totalAreaHectares = unified.TotalAreaM2 / 10000.0,
+                        coverageEfficiency = unified.CoverageEfficiency,
+                        averageWindSpeedMps = unified.AverageWindSpeedMps,
+                        windSpeedRange = new { min = unified.WindSpeedRange.Min, max = unified.WindSpeedRange.Max },
+                        timeRange = new { start = unified.EarliestMeasurement.ToString("O"), end = unified.LatestMeasurement.ToString("O") },
+                        sessionCount = unified.SessionIds.Count,
+                        vertexCount = unified.VertexCount,
+                        latestSequence = latestSeq,
+                        unifiedVersion = version,
+                        timestamp = DateTimeOffset.UtcNow.ToString("O")
                     },
                     geometry = geoJsonGeometry
-                };
-                
-                logger.LogInformation("Combined coverage loaded successfully: {TotalPolygons} polygons, {TotalArea:F1} m²", 
-                    geoJsonFeature.properties.totalPolygons, geoJsonFeature.properties.totalAreaM2);
-                
-                return Results.Json(new { 
-                    type = "FeatureCollection", 
-                    features = new[] { geoJsonFeature },
-                    metadata = new 
-                    {
-                        sourceFile = Path.GetFileName(windPolygonPath),
-                        layerName = "unified_scent_coverage",
-                        loadedAt = DateTimeOffset.UtcNow.ToString("O")
-                    }
-                });
+                }
+            },
+            metadata = new { 
+                source = "ScentPolygonLibrary", 
+                measurementCount, 
+                latestSequence = latestSeq, 
+                unifiedVersion = version, 
+                generatedAt = DateTimeOffset.UtcNow.ToString("O") 
             }
-        }
-        
-        return Results.NotFound(new { 
-            error = "No combined coverage polygon found in the layer",
-            suggestion = "The unified_scent_coverage layer exists but contains no valid polygons"
-        });
+        };
+
+        logger.LogInformation("Combined coverage response generated: area={Area}m², efficiency={Efficiency}%, version={Version}", 
+            unified.TotalAreaM2, unified.CoverageEfficiency * 100, version);
+
+        return Results.Json(response);
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Error loading combined coverage");
-        return Results.Problem(new ProblemDetails
-        {
-            Title = "Error loading combined coverage",
-            Detail = ex.Message,
-            Status = 500
-        });
+        logger.LogError(ex, "Error generating unified scent polygon");
+        return Results.Problem($"Error generating unified scent polygon: {ex.Message}");
     }
 });
 
@@ -525,39 +572,142 @@ async Task<object> CheckCombinedCoverageStatus()
 {
     try
     {
-        var windPolygonPath = FindLatestWindPolygonFile();
-        if (string.IsNullOrEmpty(windPolygonPath) || !File.Exists(windPolygonPath))
-            return new { available = false, error = "Wind polygon file not found", expectedPath = @"C:\temp\Rover1\rover_windpolygon.gpkg" };
-            
-        using var geoPackage = await GeoPackage.OpenAsync(windPolygonPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("unified_scent_coverage", new Dictionary<string, string>(), 4326);
-        var count = await layer.CountAsync();
-        
-        // Get detailed info if available
-        if (count > 0)
+        var scentService = app.Services.GetRequiredService<ScentPolygonService>();
+
+        var unified = scentService.GetUnifiedScentPolygon();
+        if (unified == null)
         {
-            var readOptions = new ReadOptions(IncludeGeometry: false, Limit: 1);
-            await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
+            return new
             {
-                return new 
-                { 
-                    available = true, 
-                    polygonCount = count, 
-                    path = windPolygonPath,
-                    totalPolygons = int.Parse(feature.Attributes["total_polygons"] ?? "0", CultureInfo.InvariantCulture),
-                    totalAreaM2 = double.Parse(feature.Attributes["total_area_m2"] ?? "0", CultureInfo.InvariantCulture),
-                    createdAt = feature.Attributes["created_at"]
-                };
-            }
+                available = false,
+                error = "No unified polygon could be generated",
+                source = "ScentPolygonLibrary"
+            };
         }
-        
-        return new { available = count > 0, polygonCount = count, path = windPolygonPath };
+
+        return new
+        {
+            available = true,
+            source = "ScentPolygonLibrary",
+            polygonCount = unified.PolygonCount,
+            totalAreaM2 = unified.TotalAreaM2,
+            coverageEfficiency = unified.CoverageEfficiency,
+            timeRange = new
+            {
+                start = unified.EarliestMeasurement,
+                end = unified.LatestMeasurement
+            },
+            sessionCount = unified.SessionIds.Count
+        };
     }
     catch (Exception ex)
     {
-        return new { available = false, error = ex.Message };
+        return new { available = false, error = ex.Message, source = "ScentPolygonLibrary" };
     }
 }
+
+app.MapGet("/api/unified-status", (ScentPolygonService scentService, HttpContext http) =>
+{
+    // Ensure no caching for status endpoint
+    http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+    http.Response.Headers["Pragma"] = "no-cache";
+    http.Response.Headers["Expires"] = "0";
+
+    // Quick debug info for client polling
+    var measurementCount = scentService.Count;
+    var latestPolygon = scentService.LatestPolygon;
+    var version = scentService.UnifiedVersion;
+    var hasValidUnified = scentService.GetUnifiedScentPolygonCached() != null;
+
+    return Results.Json(new {
+        polygonCount = measurementCount,
+        latestSequence = latestPolygon?.Sequence ?? -1,
+        unifiedVersion = version,
+        hasValidUnified = hasValidUnified,
+        lastPolygonTime = latestPolygon?.RecordedAt.ToString("HH:mm:ss"),
+        timestamp = DateTimeOffset.UtcNow.ToString("HH:mm:ss.fff")
+    });
+});
+
+app.MapPost("/api/unified-recompute", (ScentPolygonService scentService) =>
+{
+    var unified = scentService.ForceRecomputeUnified();
+    return unified == null ? Results.NotFound() : Results.Ok(new { unifiedVersion = scentService.UnifiedVersion });
+});
+
+app.MapGet("/api/unified-debug", async (ScentPolygonService scentService, IRoverDataReader roverReader) =>
+{
+    try
+    {
+        // Get current service state
+        var serviceCount = scentService.Count;
+        var latestPolygon = scentService.LatestPolygon;
+        var version = scentService.UnifiedVersion;
+        
+        // Manually check what the data reader sees
+        await roverReader.InitializeAsync();
+        var allMeasurements = await roverReader.GetAllMeasurementsAsync();
+        var readerCount = allMeasurements.Count;
+        var readerLatest = allMeasurements.LastOrDefault();
+        
+        // Check for new measurements manually
+        var lastSeq = latestPolygon?.Sequence ?? -1;
+        var newMeasurements = await roverReader.GetNewMeasurementsAsync(lastSeq);
+        
+        return Results.Json(new {
+            serviceState = new {
+                polygonCount = serviceCount,
+                latestSequence = latestPolygon?.Sequence ?? -1,
+                latestTime = latestPolygon?.RecordedAt.ToString("HH:mm:ss"),
+                unifiedVersion = version
+            },
+            readerState = new {
+                totalMeasurements = readerCount,
+                latestSequence = readerLatest?.Sequence ?? -1,
+                latestTime = readerLatest?.RecordedAt.ToString("HH:mm:ss"),
+                newMeasurementsSinceLastPoll = newMeasurements.Count
+            },
+            newMeasurements = newMeasurements.Select(m => new {
+                sequence = m.Sequence,
+                time = m.RecordedAt.ToString("HH:mm:ss"),
+                location = $"{m.Latitude:F6},{m.Longitude:F6}"
+            }).ToArray()
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Debug error: {ex.Message}");
+    }
+});
+
+app.MapPost("/api/unified-force-poll", async (ScentPolygonService scentService, IRoverDataReader roverReader) =>
+{
+    try
+    {
+        // Force a manual poll to see what happens
+        Console.WriteLine("[API] Manual poll requested");
+        await roverReader.InitializeAsync();
+        var latestPolygon = scentService.LatestPolygon;
+        var lastSeq = latestPolygon?.Sequence ?? -1;
+        var newMeasurements = await roverReader.GetNewMeasurementsAsync(lastSeq);
+        
+        Console.WriteLine($"[API] Manual poll found {newMeasurements.Count} new measurements since seq {lastSeq}");
+        
+        return Results.Json(new {
+            lastSequence = lastSeq,
+            newMeasurementsFound = newMeasurements.Count,
+            measurements = newMeasurements.Select(m => new {
+                sequence = m.Sequence,
+                time = m.RecordedAt.ToString("HH:mm:ss")
+            }).ToArray()
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"Force poll error: {ex.Message}");
+    }
+});
+
 Console.WriteLine("Starting web application...");
 
 try

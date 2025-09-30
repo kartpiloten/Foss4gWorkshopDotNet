@@ -1,7 +1,7 @@
 @page "/"
 @inject IJSRuntime JS
 
-<h3>RiverHead Forest Rover Tracker 🌲🤖💨</h3>
+<h3>RiverHead Forest Rover Tracker</h3>
 <p>Real-time tracking of rover movements with wind direction, speed visualization, and scent detection polygons within the RiverHead Forest boundary.</p>
 
 <div class="info-panel mb-3">
@@ -9,7 +9,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">🗺️ Forest Area</h5>
+                    <h5 class="card-title">Forest Area</h5>
                     <p class="card-text">Forest boundary loaded from GeoPackage data</p>
                 </div>
             </div>
@@ -17,7 +17,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">🌫️ Combined Coverage</h5>
+                    <h5 class="card-title">Combined Coverage</h5>
                     <p class="card-text">Total scent detection area (background)</p>
                 </div>
             </div>
@@ -25,7 +25,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">🍃 Wind Feathers</h5>
+                    <h5 class="card-title">Wind Feathers</h5>
                     <p class="card-text">Individual scent detection polygons</p>
                 </div>
             </div>
@@ -33,7 +33,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">🛤️ Rover Trail</h5>
+                    <h5 class="card-title">Rover Trail</h5>
                     <p class="card-text">Historical path with measurements</p>
                 </div>
             </div>
@@ -41,7 +41,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">💨 Wind Arrows</h5>
+                    <h5 class="card-title">Wind Arrows</h5>
                     <p class="card-text">Wind speed & direction vectors</p>
                 </div>
             </div>
@@ -49,7 +49,7 @@
         <div class="col-md-2">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">📍 Live Position</h5>
+                    <h5 class="card-title">Live Position</h5>
                     <p class="card-text">Real-time rover location</p>
                 </div>
             </div>
@@ -111,6 +111,14 @@
 @if (!string.IsNullOrEmpty(_error))
 {
     <div class="alert alert-warning mt-3">Map initialization failed: @_error</div>
+}
+
+@if (!string.IsNullOrEmpty(_debugInfo))
+{
+    <div class="alert alert-info mt-3">
+        <strong>Debug Info:</strong><br/>
+        @((MarkupString)_debugInfo.Replace("\n", "<br/>"))
+    </div>
 }
 
 <style>
@@ -210,25 +218,152 @@
 
 @code {
     private string? _error;
+    private string? _debugInfo;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            await InitializeMapWithRetryAsync();
+        }
+    }
+
+    private async Task InitializeMapWithRetryAsync()
+    {
+        const int maxRetries = 5;
+        const int retryDelayMs = 1000;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
             try
             {
+                _debugInfo = $"Attempt {attempt}/{maxRetries}: Checking script availability...";
+                StateHasChanged();
+
+                // Wait for scripts to load
+                await Task.Delay(500 * attempt); // Increasing delay for each retry
+
+                // Check if Leaflet is available
+                var leafletAvailable = await JS.InvokeAsync<bool>("eval", "typeof L !== 'undefined'");
+                
+                if (!leafletAvailable)
+                {
+                    _debugInfo += $"\nLeaflet library not available on attempt {attempt}";
+                    if (attempt == maxRetries)
+                    {
+                        _error = "Leaflet library failed to load. Please check your internet connection.";
+                        StateHasChanged();
+                        return;
+                    }
+                    continue;
+                }
+
+                // Check if our function is available
+                var functionAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initLeafletMap === 'function'");
+                
+                if (!functionAvailable)
+                {
+                    _debugInfo += $"\ninitLeafletMap function not available on attempt {attempt}";
+                    if (attempt == maxRetries)
+                    {
+                        _error = "JavaScript function 'initLeafletMap' not found. Please check if leafletInit.js is loading properly.";
+                        _debugInfo += "\nTrying to load the script manually...";
+                        
+                        // Try to load the script manually
+                        await TryLoadScriptManuallyAsync();
+                        return;
+                    }
+                    continue;
+                }
+
+                // Both Leaflet and our function are available
+                _debugInfo += $"\nAll dependencies available, initializing map...";
+                StateHasChanged();
+
                 await JS.InvokeVoidAsync("initLeafletMap");
+                
+                _debugInfo = "Map initialization completed successfully!";
+                _error = null;
+                StateHasChanged();
+                return;
+
             }
             catch (JSException jsex)
             {
-                _error = jsex.Message;
-                StateHasChanged();
+                _debugInfo += $"\nJavaScript error on attempt {attempt}: {jsex.Message}";
+                if (attempt == maxRetries)
+                {
+                    _error = $"JavaScript error: {jsex.Message}";
+                }
             }
             catch (Exception ex)
             {
-                _error = ex.Message;
-                StateHasChanged();
+                _debugInfo += $"\nGeneral error on attempt {attempt}: {ex.Message}";
+                if (attempt == maxRetries)
+                {
+                    _error = $"Unexpected error: {ex.Message}";
+                }
+            }
+
+            if (attempt < maxRetries)
+            {
+                await Task.Delay(retryDelayMs);
             }
         }
+
+        StateHasChanged();
+    }
+
+    private async Task TryLoadScriptManuallyAsync()
+    {
+        try
+        {
+            // Try to load the script dynamically
+            var loadScript = @"
+                return new Promise((resolve, reject) => {
+                    if (typeof window.initLeafletMap === 'function') {
+                        resolve(true);
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = 'js/leafletInit.js';
+                    script.onload = () => {
+                        setTimeout(() => {
+                            if (typeof window.initLeafletMap === 'function') {
+                                resolve(true);
+                            } else {
+                                reject('Function still not available after manual load');
+                            }
+                        }, 100);
+                    };
+                    script.onerror = () => reject('Failed to load script');
+                    document.head.appendChild(script);
+                });
+            ";
+
+            var loaded = await JS.InvokeAsync<bool>("eval", loadScript);
+            
+            if (loaded)
+            {
+                _debugInfo += "\nScript loaded manually, initializing map...";
+                StateHasChanged();
+                
+                await JS.InvokeVoidAsync("initLeafletMap");
+                
+                _debugInfo = "Map initialization completed successfully after manual script load!";
+                _error = null;
+            }
+            else
+            {
+                _error = "Failed to load JavaScript function even with manual loading.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Manual script loading failed: {ex.Message}";
+        }
+        
+        StateHasChanged();
     }
 }

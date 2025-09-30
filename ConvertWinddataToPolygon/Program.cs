@@ -1,257 +1,342 @@
-﻿using MapPiloteGeopackageHelper;
+﻿using ConvertWinddataToPolygon;
+using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
 using ReadRoverDBStubLibrary;
 using System.Globalization;
-using System.Linq;
-using ConvertWinddataToPolygon;
+
+// ===== MAIN PROGRAM =====
 
 Console.WriteLine("=== Wind Data to Polygon Converter ===");
 Console.WriteLine("Converting rover wind measurements to scent area polygons...");
+Console.WriteLine();
 
-const string inputGeopackagePath = @"C:\temp\Rover1\rover_data.gpkg";
-var outputGeopackagePath = @"C:\temp\Rover1\rover_windpolygon.gpkg";
-var outputGeoJsonPath = @"C:\temp\Rover1\rover_windpolygon.geojson";
+var outputGeopackagePath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, "rover_windpolygon.gpkg");
+var outputGeoJsonPath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, "rover_windpolygon.geojson");
 
 try
 {
-    // Verify input file exists
-    if (!File.Exists(inputGeopackagePath))
+    // Create rover data reader using the new library architecture
+    Console.WriteLine("Setting up rover data reader...");
+    
+    IRoverDataReader? roverReader = null;
+    
+    // Try PostgreSQL first, then fallback to GeoPackage
+    try
     {
-        Console.WriteLine($"❌ Input GeoPackage not found: {inputGeopackagePath}");
-        Console.WriteLine("Please run the RoverSimulator first to generate rover data.");
-        return;
-    }
-
-    Console.WriteLine($"📖 Reading rover data from: {inputGeopackagePath}");
-    
-    // Initialize rover data reader
-    // Direct instantiation is appropriate here since we're reading from a specific known file
-    using var roverReader = new GeoPackageRoverDataReader(inputGeopackagePath);
-    await roverReader.InitializeAsync();
-    
-    // Get all rover measurements
-    var measurements = await roverReader.GetAllMeasurementsAsync();
-    Console.WriteLine($"Found {measurements.Count} rover measurements");
-    
-    if (measurements.Count == 0)
-    {
-        Console.WriteLine("No measurements found. Exiting.");
-        return;
-    }
-
-    // Handle file locking - try alternative filename if original is locked
-    var attempts = 0;
-    var maxAttempts = 3;
-    
-    while (attempts < maxAttempts)
-    {
-        try
+        Console.WriteLine("Attempting to connect to PostgreSQL database...");
+        var postgresConfig = ConverterConfiguration.CreateDatabaseConfig("postgres");
+        
+        var (isConnected, errorMessage) = await RoverDataReaderFactory.TestPostgresConnectionAsync(
+            postgresConfig.PostgresConnectionString!,
+            postgresConfig.ConnectionTimeoutSeconds,
+            postgresConfig.MaxRetryAttempts,
+            postgresConfig.RetryDelayMs);
+        
+        if (isConnected)
         {
-            // Try to delete existing files
-            if (File.Exists(outputGeopackagePath))
-            {
-                File.Delete(outputGeopackagePath);
-                Console.WriteLine("Deleted existing GeoPackage file");
-            }
-            
-            if (File.Exists(outputGeoJsonPath))
-            {
-                File.Delete(outputGeoJsonPath);
-                Console.WriteLine("Deleted existing GeoJSON file");
-            }
-            break; // Success, exit the loop
+            roverReader = await RoverDataReaderFactory.CreateReaderWithValidationAsync(postgresConfig);
+            Console.WriteLine("✓ Connected to PostgreSQL database");
         }
-        catch (IOException ex) when (ex.Message.Contains("being used by another process"))
+        else
         {
-            attempts++;
-            if (attempts < maxAttempts)
-            {
-                // Try alternative filename
-                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                outputGeopackagePath = $@"C:\temp\Rover1\rover_windpolygon_{timestamp}.gpkg";
-                outputGeoJsonPath = $@"C:\temp\Rover1\rover_windpolygon_{timestamp}.geojson";
-                Console.WriteLine($"File locked, trying alternative: {Path.GetFileName(outputGeopackagePath)}");
-            }
-            else
-            {
-                Console.WriteLine("❌ Output files are locked by another process (likely QGIS).");
-                Console.WriteLine("Please close QGIS or any other application using the wind polygon files and try again.");
-                throw;
-            }
+            Console.WriteLine($"! PostgreSQL connection failed: {errorMessage}");
+            Console.WriteLine("Falling back to GeoPackage file...");
         }
     }
-
-    Console.WriteLine($"📝 Creating wind polygon GeoPackage: {outputGeopackagePath}");
-
-    // Create a sample polygon first to establish the correct geometry type
-    var geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
-    var sampleMeasurement = measurements.First();
-    var samplePolygon = CreateScentPolygon(sampleMeasurement, geometryFactory);
-    
-    Console.WriteLine($"Sample polygon geometry type: {samplePolygon.GeometryType}");
-    Console.WriteLine($"Sample polygon SRID: {samplePolygon.SRID}");
-    Console.WriteLine($"Sample polygon is valid: {samplePolygon.IsValid}");
-
-    using var outputGeoPackage = await GeoPackage.OpenAsync(outputGeopackagePath, 4326);
-    
-    // Define schema for wind polygons
-    var windPolygonSchema = new Dictionary<string, string>
+    catch (Exception ex)
     {
-        ["session_id"] = "TEXT NOT NULL",
-        ["sequence"] = "INTEGER NOT NULL", 
-        ["recorded_at"] = "TEXT NOT NULL",
-        ["wind_direction_deg"] = "INTEGER NOT NULL",
-        ["wind_speed_mps"] = "REAL NOT NULL",
-        ["scent_area_m2"] = "REAL NOT NULL",
-        ["max_distance_m"] = "REAL NOT NULL"
-    };
-
-    // Create the layer with proper geometry type specification
-    Console.WriteLine("Creating polygon layer with proper geometry type...");
-    var windPolygonLayer = await outputGeoPackage.EnsureLayerAsync("wind_scent_polygons", windPolygonSchema, 4326, "POLYGON");
+        Console.WriteLine($"! PostgreSQL setup failed: {ex.Message}");
+        Console.WriteLine("Falling back to GeoPackage file...");
+    }
     
-    // Insert the sample polygon first to establish geometry type
-    var sampleFeatureRecord = new FeatureRecord(
-        samplePolygon,
-        new Dictionary<string, string?>(StringComparer.Ordinal)
-        {
-            ["session_id"] = sampleMeasurement.SessionId.ToString(),
-            ["sequence"] = sampleMeasurement.Sequence.ToString(CultureInfo.InvariantCulture),
-            ["recorded_at"] = sampleMeasurement.RecordedAt.ToString("O"),
-            ["wind_direction_deg"] = sampleMeasurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
-            ["wind_speed_mps"] = sampleMeasurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture),
-            ["scent_area_m2"] = (samplePolygon.Area * 111320.0 * 111320.0 * Math.Cos(sampleMeasurement.Latitude * Math.PI / 180.0)).ToString("F1", CultureInfo.InvariantCulture),
-            ["max_distance_m"] = CalculateMaxScentDistance(sampleMeasurement.WindSpeedMps).ToString("F1", CultureInfo.InvariantCulture)
-        }
-    );
-    
-    // Insert sample to establish geometry type
-    await windPolygonLayer.BulkInsertAsync(
-        new[] { sampleFeatureRecord },
-        new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: false, ConflictPolicy: ConflictPolicy.Ignore),
-        null,
-        CancellationToken.None
-    );
-    
-    Console.WriteLine("Sample polygon inserted to establish geometry type");
-    
-    // Generate wind polygons for remaining measurements (skip the first one as it's already inserted)
-    var windPolygons = new List<FeatureRecord>();
-    
-    foreach (var measurement in measurements.Skip(1)) // Skip first as it's already inserted
+    // Fallback to GeoPackage if PostgreSQL failed
+    if (roverReader == null)
     {
-        var scentPolygon = CreateScentPolygon(measurement, geometryFactory);
-        
-        // Validate the polygon before adding
-        if (!scentPolygon.IsValid)
+        // Check if GeoPackage file exists
+        if (!File.Exists(ConverterConfiguration.GEOPACKAGE_FILE_PATH))
         {
-            Console.WriteLine($"Warning: Invalid polygon for sequence {measurement.Sequence}, attempting to fix...");
-            
-            // Try to fix the polygon
-            var buffered = scentPolygon.Buffer(0.0);
-            if (buffered is Polygon fixedPolygon && fixedPolygon.IsValid)
-            {
-                fixedPolygon.SRID = 4326;
-                scentPolygon = fixedPolygon;
-            }
-            else
-            {
-                Console.WriteLine($"Could not fix polygon for sequence {measurement.Sequence}, skipping...");
-                continue;
-            }
+            Console.WriteLine($"ERROR: Neither PostgreSQL nor GeoPackage data source is available!");
+            Console.WriteLine($"PostgreSQL: Connection failed");
+            Console.WriteLine($"GeoPackage: File not found at {ConverterConfiguration.GEOPACKAGE_FILE_PATH}");
+            Console.WriteLine();
+            Console.WriteLine("TROUBLESHOOTING:");
+            Console.WriteLine("1. Run the RoverSimulator first to generate data");
+            Console.WriteLine("2. Check PostgreSQL connection settings");
+            Console.WriteLine("3. Verify GeoPackage file path");
+            return;
         }
         
-        var scentArea = scentPolygon.Area * 111320.0 * 111320.0 * Math.Cos(measurement.Latitude * Math.PI / 180.0); // Approximate area in m²
-        var maxDistance = CalculateMaxScentDistance(measurement.WindSpeedMps);
+        Console.WriteLine($"Using GeoPackage file: {ConverterConfiguration.GEOPACKAGE_FILE_PATH}");
+        var geopackageConfig = ConverterConfiguration.CreateDatabaseConfig("geopackage");
+        roverReader = await RoverDataReaderFactory.CreateReaderWithValidationAsync(geopackageConfig);
+        Console.WriteLine("✓ Connected to GeoPackage file");
+    }
+    
+    using (roverReader)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Reading rover measurements from data source...");
         
-        var featureRecord = new FeatureRecord(
-            scentPolygon,
+        // Initialize the reader
+        await roverReader.InitializeAsync();
+        
+        // Get measurement count
+        var measurementCount = await roverReader.GetMeasurementCountAsync();
+        Console.WriteLine($"Total measurements available: {measurementCount}");
+        
+        if (measurementCount == 0)
+        {
+            Console.WriteLine("ERROR: No measurements found in the data source.");
+            Console.WriteLine("Please run the RoverSimulator first to generate rover data.");
+            return;
+        }
+        
+        // Get all rover measurements
+        var measurements = await roverReader.GetAllMeasurementsAsync();
+        Console.WriteLine($"✓ Loaded {measurements.Count} rover measurements");
+        
+        if (measurements.Count == 0)
+        {
+            Console.WriteLine("No measurements found. Exiting.");
+            return;
+        }
+        
+        // Ensure output directory exists
+        var outputDir = Path.GetDirectoryName(outputGeopackagePath);
+        if (!string.IsNullOrEmpty(outputDir) && !Directory.Exists(outputDir))
+        {
+            Directory.CreateDirectory(outputDir);
+            Console.WriteLine($"Created output directory: {outputDir}");
+        }
+        
+        // Handle file locking - try alternative filename if original is locked
+        var attempts = 0;
+        var maxAttempts = 3;
+        
+        while (attempts < maxAttempts)
+        {
+            try
+            {
+                // Try to delete existing files
+                if (File.Exists(outputGeopackagePath))
+                {
+                    File.Delete(outputGeopackagePath);
+                    Console.WriteLine("Deleted existing GeoPackage file");
+                }
+                
+                if (File.Exists(outputGeoJsonPath))
+                {
+                    File.Delete(outputGeoJsonPath);
+                    Console.WriteLine("Deleted existing GeoJSON file");
+                }
+                break; // Success, exit the loop
+            }
+            catch (IOException ex) when (ex.Message.Contains("being used by another process"))
+            {
+                attempts++;
+                if (attempts < maxAttempts)
+                {
+                    // Try alternative filename
+                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    outputGeopackagePath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, $"rover_windpolygon_{timestamp}.gpkg");
+                    outputGeoJsonPath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, $"rover_windpolygon_{timestamp}.geojson");
+                    Console.WriteLine($"File locked, trying alternative: {Path.GetFileName(outputGeopackagePath)}");
+                }
+                else
+                {
+                    Console.WriteLine("ERROR: Output files are locked by another process (likely QGIS).");
+                    Console.WriteLine("Please close QGIS or any other application using the wind polygon files and try again.");
+                    throw;
+                }
+            }
+        }
+
+        Console.WriteLine($"Creating wind polygon GeoPackage: {outputGeopackagePath}");
+
+        // Create a sample polygon first to establish the correct geometry type
+        var geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        var sampleMeasurement = measurements.First();
+        var samplePolygon = CreateScentPolygon(sampleMeasurement, geometryFactory);
+        
+        Console.WriteLine($"Sample polygon geometry type: {samplePolygon.GeometryType}");
+        Console.WriteLine($"Sample polygon SRID: {samplePolygon.SRID}");
+        Console.WriteLine($"Sample polygon is valid: {samplePolygon.IsValid}");
+
+        using var outputGeoPackage = await GeoPackage.OpenAsync(outputGeopackagePath, 4326);
+        
+        // Define schema for wind polygons
+        var windPolygonSchema = new Dictionary<string, string>
+        {
+            ["session_id"] = "TEXT NOT NULL",
+            ["sequence"] = "INTEGER NOT NULL", 
+            ["recorded_at"] = "TEXT NOT NULL",
+            ["wind_direction_deg"] = "INTEGER NOT NULL",
+            ["wind_speed_mps"] = "REAL NOT NULL",
+            ["scent_area_m2"] = "REAL NOT NULL",
+            ["max_distance_m"] = "REAL NOT NULL"
+        };
+
+        // Create the layer with proper geometry type specification
+        Console.WriteLine("Creating polygon layer with proper geometry type...");
+        var windPolygonLayer = await outputGeoPackage.EnsureLayerAsync("wind_scent_polygons", windPolygonSchema, 4326, "POLYGON");
+        
+        // Insert the sample polygon first to establish geometry type
+        var sampleFeatureRecord = new FeatureRecord(
+            samplePolygon,
             new Dictionary<string, string?>(StringComparer.Ordinal)
             {
-                ["session_id"] = measurement.SessionId.ToString(),
-                ["sequence"] = measurement.Sequence.ToString(CultureInfo.InvariantCulture),
-                ["recorded_at"] = measurement.RecordedAt.ToString("O"),
-                ["wind_direction_deg"] = measurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
-                ["wind_speed_mps"] = measurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture),
-                ["scent_area_m2"] = scentArea.ToString("F1", CultureInfo.InvariantCulture),
-                ["max_distance_m"] = maxDistance.ToString("F1", CultureInfo.InvariantCulture)
+                ["session_id"] = sampleMeasurement.SessionId.ToString(),
+                ["sequence"] = sampleMeasurement.Sequence.ToString(CultureInfo.InvariantCulture),
+                ["recorded_at"] = sampleMeasurement.RecordedAt.ToString("O"),
+                ["wind_direction_deg"] = sampleMeasurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
+                ["wind_speed_mps"] = sampleMeasurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture),
+                ["scent_area_m2"] = (samplePolygon.Area * 111320.0 * 111320.0 * Math.Cos(sampleMeasurement.Latitude * Math.PI / 180.0)).ToString("F1", CultureInfo.InvariantCulture),
+                ["max_distance_m"] = CalculateMaxScentDistance(sampleMeasurement.WindSpeedMps).ToString("F1", CultureInfo.InvariantCulture)
             }
         );
         
-        windPolygons.Add(featureRecord);
-    }
-
-    Console.WriteLine($"Generated {windPolygons.Count + 1} valid scent polygons (including sample)");
-    
-    // Bulk insert remaining polygons with smaller batch size for better compatibility
-    if (windPolygons.Any())
-    {
+        // Insert sample to establish geometry type
         await windPolygonLayer.BulkInsertAsync(
-            windPolygons,
-            new BulkInsertOptions(
-                BatchSize: 100, // Smaller batch size for better stability
-                CreateSpatialIndex: true,
-                ConflictPolicy: ConflictPolicy.Ignore
-            ),
-            progress: null,
+            new[] { sampleFeatureRecord },
+            new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: false, ConflictPolicy: ConflictPolicy.Ignore),
+            null,
             CancellationToken.None
         );
-    }
+        
+        Console.WriteLine("Sample polygon inserted to establish geometry type");
+        
+        // Generate wind polygons for remaining measurements (skip the first one as it's already inserted)
+        var windPolygons = new List<FeatureRecord>();
+        
+        Console.WriteLine($"Processing {measurements.Count - 1} remaining measurements...");
+        var processedCount = 0;
+        
+        foreach (var measurement in measurements.Skip(1)) // Skip first as it's already inserted
+        {
+            var scentPolygon = CreateScentPolygon(measurement, geometryFactory);
+            
+            // Validate the polygon before adding
+            if (!scentPolygon.IsValid)
+            {
+                Console.WriteLine($"Warning: Invalid polygon for sequence {measurement.Sequence}, attempting to fix...");
+                
+                // Try to fix the polygon
+                var buffered = scentPolygon.Buffer(0.0);
+                if (buffered is Polygon fixedPolygon && fixedPolygon.IsValid)
+                {
+                    fixedPolygon.SRID = 4326;
+                    scentPolygon = fixedPolygon;
+                }
+                else
+                {
+                    Console.WriteLine($"Could not fix polygon for sequence {measurement.Sequence}, skipping...");
+                    continue;
+                }
+            }
+            
+            var scentArea = scentPolygon.Area * 111320.0 * 111320.0 * Math.Cos(measurement.Latitude * Math.PI / 180.0); // Approximate area in m²
+            var maxDistance = CalculateMaxScentDistance(measurement.WindSpeedMps);
+            
+            var featureRecord = new FeatureRecord(
+                scentPolygon,
+                new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["session_id"] = measurement.SessionId.ToString(),
+                    ["sequence"] = measurement.Sequence.ToString(CultureInfo.InvariantCulture),
+                    ["recorded_at"] = measurement.RecordedAt.ToString("O"),
+                    ["wind_direction_deg"] = measurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
+                    ["wind_speed_mps"] = measurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture),
+                    ["scent_area_m2"] = scentArea.ToString("F1", CultureInfo.InvariantCulture),
+                    ["max_distance_m"] = maxDistance.ToString("F1", CultureInfo.InvariantCulture)
+                }
+            );
+            
+            windPolygons.Add(featureRecord);
+            processedCount++;
+            
+            // Progress update every 100 measurements
+            if (processedCount % 100 == 0)
+            {
+                Console.WriteLine($"Processed {processedCount} / {measurements.Count - 1} measurements...");
+            }
+        }
 
-    // Verify the layer geometry type after insertion
-    Console.WriteLine("Verifying layer geometry type after insertion...");
-    var testReadOptions = new ReadOptions(IncludeGeometry: true, Limit: 3);
-    int testCount = 0;
-    await foreach (var testFeature in windPolygonLayer.ReadFeaturesAsync(testReadOptions))
-    {
-        Console.WriteLine($"Feature {++testCount}: {testFeature.Geometry?.GeometryType} (SRID: {testFeature.Geometry?.SRID}, Valid: {testFeature.Geometry?.IsValid})");
-    }
+        Console.WriteLine($"Generated {windPolygons.Count + 1} valid scent polygons (including sample)");
+        
+        // Bulk insert remaining polygons with smaller batch size for better compatibility
+        if (windPolygons.Any())
+        {
+            Console.WriteLine("Bulk inserting wind polygons...");
+            await windPolygonLayer.BulkInsertAsync(
+                windPolygons,
+                new BulkInsertOptions(
+                    BatchSize: 100, // Smaller batch size for better stability
+                    CreateSpatialIndex: true,
+                    ConflictPolicy: ConflictPolicy.Ignore
+                ),
+                progress: null,
+                CancellationToken.None
+            );
+        }
 
-    Console.WriteLine("✅ Wind polygon conversion completed successfully!");
-    Console.WriteLine($"GeoPackage output: {outputGeopackagePath}");
-    
-    var gpkgFileInfo = new FileInfo(outputGeopackagePath);
-    Console.WriteLine($"GeoPackage size: {gpkgFileInfo.Length / 1024.0:F1} KB");
-    
-    // Create unified coverage polygon layer
-    Console.WriteLine("🔄 Creating unified coverage polygon...");
-    await CreateUnifiedCoverageLayer(outputGeoPackage, windPolygons.Concat(new[] { sampleFeatureRecord }).ToList());
-    
-    // Export to GeoJSON as well for broader compatibility
-    await GeoJsonExporter.ExportToGeoJsonAsync(outputGeopackagePath, outputGeoJsonPath);
-    
-    // Run verification and show statistics
-    await WindPolygonVerifier.VerifyWindPolygonsAsync(outputGeopackagePath);
-    
-    Console.WriteLine("\n🎯 Files created:");
-    Console.WriteLine($"   📦 GeoPackage: {outputGeopackagePath}");
-    Console.WriteLine($"      - Individual scent polygons: wind_scent_polygons layer");
-    Console.WriteLine($"      - Unified coverage area: unified_scent_coverage layer");
-    Console.WriteLine($"   📄 GeoJSON:    {outputGeoJsonPath}");
-    Console.WriteLine("\n📊 Visualization options:");
-    Console.WriteLine("1. QGIS: Open the .gpkg file directly (contains both layers)");
-    Console.WriteLine("2. Web GIS: Use the .geojson file");
-    Console.WriteLine("3. Validate: Check the .geojson at geojsonlint.com");
-    Console.WriteLine("\nLayers in GeoPackage:");
-    Console.WriteLine("• wind_scent_polygons: Individual scent detection areas for each rover position");
-    Console.WriteLine("• unified_scent_coverage: Combined coverage area showing total scent detection zone");
-    
-    Console.WriteLine("\n🔧 QGIS Instructions:");
-    Console.WriteLine("1. Close any existing wind polygon layers in QGIS");
-    Console.WriteLine("2. Layer → Add Layer → Add Vector Layer");
-    Console.WriteLine($"3. Select: {outputGeopackagePath}");
-    Console.WriteLine("4. Choose which layer(s) to load:");
-    Console.WriteLine("   - wind_scent_polygons: Shows individual detection areas (detailed view)");
-    Console.WriteLine("   - unified_scent_coverage: Shows total coverage area (overview)");
-    Console.WriteLine("5. Style with transparency to see overlapping areas");
-    Console.WriteLine("6. If still showing as points, use the GeoJSON file instead");
+        // Verify the layer geometry type after insertion
+        Console.WriteLine("Verifying layer geometry type after insertion...");
+        var testReadOptions = new ReadOptions(IncludeGeometry: true, Limit: 3);
+        int testCount = 0;
+        await foreach (var testFeature in windPolygonLayer.ReadFeaturesAsync(testReadOptions))
+        {
+            Console.WriteLine($"Feature {++testCount}: {testFeature.Geometry?.GeometryType} (SRID: {testFeature.Geometry?.SRID}, Valid: {testFeature.Geometry?.IsValid})");
+        }
+
+        Console.WriteLine("SUCCESS: Wind polygon conversion completed successfully!");
+        Console.WriteLine($"GeoPackage output: {outputGeopackagePath}");
+        
+        var gpkgFileInfo = new FileInfo(outputGeopackagePath);
+        Console.WriteLine($"GeoPackage size: {gpkgFileInfo.Length / 1024.0:F1} KB");
+        
+        // Create unified coverage polygon layer
+        Console.WriteLine("Creating unified coverage polygon...");
+        await CreateUnifiedCoverageLayer(outputGeoPackage, windPolygons.Concat(new[] { sampleFeatureRecord }).ToList());
+        
+        // Export to GeoJSON as well for broader compatibility
+        await GeoJsonExporter.ExportToGeoJsonAsync(outputGeopackagePath, outputGeoJsonPath);
+        
+        // Run verification and show statistics
+        await WindPolygonVerifier.VerifyWindPolygonsAsync(outputGeopackagePath);
+        
+        Console.WriteLine("\nFiles created:");
+        Console.WriteLine($"   GeoPackage: {outputGeopackagePath}");
+        Console.WriteLine($"      - Individual scent polygons: wind_scent_polygons layer");
+        Console.WriteLine($"      - Unified coverage area: unified_scent_coverage layer");
+        Console.WriteLine($"   GeoJSON:    {outputGeoJsonPath}");
+        Console.WriteLine("\nVisualization options:");
+        Console.WriteLine("1. QGIS: Open the .gpkg file directly (contains both layers)");
+        Console.WriteLine("2. Web GIS: Use the .geojson file");
+        Console.WriteLine("3. Validate: Check the .geojson at geojsonlint.com");
+        Console.WriteLine("\nLayers in GeoPackage:");
+        Console.WriteLine("• wind_scent_polygons: Individual scent detection areas for each rover position");
+        Console.WriteLine("• unified_scent_coverage: Combined coverage area showing total scent detection zone");
+        
+        Console.WriteLine("\nQGIS Instructions:");
+        Console.WriteLine("1. Close any existing wind polygon layers in QGIS");
+        Console.WriteLine("2. Layer → Add Layer → Add Vector Layer");
+        Console.WriteLine($"3. Select: {outputGeopackagePath}");
+        Console.WriteLine("4. Choose which layer(s) to load:");
+        Console.WriteLine("   - wind_scent_polygons: Shows individual detection areas (detailed view)");
+        Console.WriteLine("   - unified_scent_coverage: Shows total coverage area (overview)");
+        Console.WriteLine("5. Style with transparency to see overlapping areas");
+        Console.WriteLine("6. If still showing as points, use the GeoJSON file instead");
+        
+        Console.WriteLine($"\nData source used: {(roverReader is PostgresRoverDataReader ? "PostgreSQL database" : "GeoPackage file")}");
+        Console.WriteLine($"Total measurements processed: {measurements.Count}");
+    }
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"❌ Error: {ex.Message}");
+    Console.WriteLine($"ERROR: {ex.Message}");
     if (ex.StackTrace != null)
         Console.WriteLine($"Stack trace: {ex.StackTrace}");
-    Console.WriteLine("Please ensure the rover_data.gpkg file exists and is not locked by another application.");
+    Console.WriteLine("Please ensure the rover data source is available and accessible.");
     Environment.Exit(1);
 }
 
@@ -387,15 +472,15 @@ static double CalculateMaxScentDistance(double windSpeedMps)
     // Higher wind speed = better scent transport, but also more dilution
     
     if (windSpeedMps < 0.5) // Very light wind
-        return 30.0; // Limited scent transport
+        return 60.0; // Limited scent transport
     else if (windSpeedMps < 2.0) // Light wind  
-        return 50.0 + (windSpeedMps - 0.5) * 20.0; // Good scent transport
+        return 100.0 + (windSpeedMps - 0.5) * 20.0; // Good scent transport
     else if (windSpeedMps < 5.0) // Moderate wind
-        return 80.0 + (windSpeedMps - 2.0) * 15.0; // Optimal conditions
+        return 160.0 + (windSpeedMps - 2.0) * 15.0; // Optimal conditions
     else if (windSpeedMps < 8.0) // Strong wind
-        return 125.0 + (windSpeedMps - 5.0) * 10.0; // Some dilution starts
+        return 250.0 + (windSpeedMps - 5.0) * 10.0; // Some dilution starts
     else // Very strong wind
-        return Math.Max(30.0, 155.0 - (windSpeedMps - 8.0) * 5.0); // Significant dilution
+        return Math.Max(60.0, 155.0 - (windSpeedMps - 8.0) * 5.0); // Significant dilution
 }
 
 /// <summary>
@@ -456,7 +541,7 @@ static async Task CreateUnifiedCoverageLayer(GeoPackage geoPackage, List<Feature
         
         if (geometries.Count == 0)
         {
-            Console.WriteLine("⚠️ No valid geometries found for unified coverage");
+            Console.WriteLine("WARNING: No valid geometries found for unified coverage");
             return;
         }
         
@@ -574,7 +659,7 @@ static async Task CreateUnifiedCoverageLayer(GeoPackage geoPackage, List<Feature
             CancellationToken.None
         );
         
-        Console.WriteLine("✅ Unified coverage polygon created successfully!");
+        Console.WriteLine("SUCCESS: Unified coverage polygon created successfully!");
         Console.WriteLine($"   Combined {allPolygons.Count} individual polygons");
         Console.WriteLine($"   Total coverage area: {unifiedAreaM2:F0} m² ({unifiedAreaM2 / 10000:F1} hectares)");
         Console.WriteLine($"   Vertices in smoothed polygon: {smoothedPolygon.NumPoints}");
@@ -582,7 +667,7 @@ static async Task CreateUnifiedCoverageLayer(GeoPackage geoPackage, List<Feature
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ Error creating unified coverage layer: {ex.Message}");
+        Console.WriteLine($"ERROR: Error creating unified coverage layer: {ex.Message}");
         Console.WriteLine("Individual polygons are still available in the main layer.");
     }
 }
@@ -619,5 +704,46 @@ static Polygon SmoothPolygon(Polygon polygon, GeometryFactory geometryFactory)
     {
         // Return original polygon if smoothing fails
         return polygon;
+    }
+}
+
+// ===== APPLICATION CONFIGURATION =====
+// ConvertWinddataToPolygon application owns its configuration
+
+/// <summary>
+/// Configuration for the ConvertWinddataToPolygon application
+/// </summary>
+public static class ConverterConfiguration
+{
+    // Database configuration - prefer the same as RoverSimulator for consistency
+    public const string DEFAULT_DATABASE_TYPE = "postgres"; // Try PostgreSQL first
+    public const string FALLBACK_DATABASE_TYPE = "geopackage"; // Fallback to GeoPackage
+    
+    // PostgreSQL configuration - should match RoverSimulator settings
+    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
+    
+    // GeoPackage configuration
+    public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
+    public const string GEOPACKAGE_FILE_PATH = @"C:\temp\Rover1\rover_data.gpkg";
+    
+    // Output configuration
+    public const string OUTPUT_FOLDER_PATH = @"C:\temp\Rover1\";
+    
+    /// <summary>
+    /// Creates database configuration with fallback logic
+    /// </summary>
+    public static DatabaseConfiguration CreateDatabaseConfig(string? preferredType = null)
+    {
+        var dbType = preferredType ?? DEFAULT_DATABASE_TYPE;
+        
+        return new DatabaseConfiguration
+        {
+            DatabaseType = dbType,
+            PostgresConnectionString = POSTGRES_CONNECTION_STRING,
+            GeoPackageFolderPath = GEOPACKAGE_FOLDER_PATH,
+            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
+            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+        };
     }
 }

@@ -44,13 +44,13 @@ try
         
         if (isConnected)
         {
-            Console.WriteLine("? PostgreSQL connection successful - using PostgreSQL database for reading");
+            Console.WriteLine("SUCCESS: PostgreSQL connection successful - using PostgreSQL database for reading");
             Console.WriteLine($"{new string('=', 60)}");
             dataReader = new PostgresRoverDataReader(databaseConfig.PostgresConnectionString!);
         }
         else
         {
-            Console.WriteLine($"? PostgreSQL connection failed: {errorMessage}");
+            Console.WriteLine($"ERROR: PostgreSQL connection failed: {errorMessage}");
             Console.WriteLine();
             Console.WriteLine("NETWORK TROUBLESHOOTING:");
             Console.WriteLine($"- Check if PostgreSQL server is running on {TesterConfiguration.GetPostgresServerInfo()}");
@@ -73,7 +73,7 @@ try
     }
     else
     {
-        Console.WriteLine("? Using GeoPackage database (local file storage)");
+        Console.WriteLine("SUCCESS: Using GeoPackage database (local file storage)");
         Console.WriteLine($"{new string('=', 60)}");
         dataReader = new GeoPackageRoverDataReader(databaseConfig.GeoPackageFolderPath!);
     }

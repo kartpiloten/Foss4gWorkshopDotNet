@@ -13,7 +13,7 @@ public static class GeoJsonExporter
 {
     public static async Task ExportToGeoJsonAsync(string geoPackagePath, string outputPath)
     {
-        Console.WriteLine($"\n?? Exporting to GeoJSON: {outputPath}");
+        Console.WriteLine($"\nExporting to GeoJSON: {outputPath}");
         
         if (!File.Exists(geoPackagePath))
         {
@@ -89,7 +89,7 @@ public static class GeoJsonExporter
             await File.WriteAllTextAsync(outputPath, geoJsonString);
             
             var fileInfo = new FileInfo(outputPath);
-            Console.WriteLine($"? Exported {features.Count} polygons to GeoJSON ({fileInfo.Length / 1024.0:F1} KB)");
+            Console.WriteLine($"SUCCESS: Exported {features.Count} polygons to GeoJSON ({fileInfo.Length / 1024.0:F1} KB)");
             Console.WriteLine("You can now:");
             Console.WriteLine("1. Open in web mapping libraries (Leaflet, OpenLayers, Mapbox)");
             Console.WriteLine("2. Load in QGIS as a vector layer");
