@@ -1,202 +1,84 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.AspNetCore.Mvc;
 using MapPiloteGeopackageHelper;
-using NetTopologySuite.IO;
 using NetTopologySuite.Geometries;
-using System.Collections.Concurrent;
-using System.Globalization;
+using NetTopologySuite.IO;
 using ReadRoverDBStubLibrary;
 using ScentPolygonLibrary;
 
-// ====== Application Startup (Top-level statements) ======
+// ====== Simple Rover Visualization Application ======
 
-Console.WriteLine("=== Starting FrontendVersion2 Rover Application ===");
+Console.WriteLine("=== RiverHead Forest Rover Tracker (Learning Version) ===");
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.SetMinimumLevel(LogLevel.Information);
-
+// Basic services
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor()
-    .AddCircuitOptions(o =>
-    {
-        if (builder.Environment.IsDevelopment())
-        {
-            o.DetailedErrors = true;
-        }
-    });
+builder.Services.AddServerSideBlazor();
 
-// Add rover data reader with proper configuration
+// Simple rover data reader configuration
 builder.Services.AddSingleton<IRoverDataReader>(provider =>
 {
-    var logger = provider.GetRequiredService<ILogger<IRoverDataReader>>();
+    // Try PostgreSQL first, fallback to GeoPackage
     try
     {
-        // FrontendVersion2 application configuration
         var config = new DatabaseConfiguration
         {
             DatabaseType = "postgres",
-            PostgresConnectionString = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30",
-            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
-            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+            PostgresConnectionString = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30"
         };
         
-        logger.LogInformation("Configuring PostgreSQL database connection to: {Host}", "192.168.1.254:5432");
-        var reader = RoverDataReaderFactory.CreateReader(config);
-        return reader;
+        Console.WriteLine("Connecting to PostgreSQL database...");
+        return RoverDataReaderFactory.CreateReader(config);
     }
-    catch (Exception ex)
+    catch
     {
-        logger.LogError(ex, "Failed to configure PostgreSQL reader");
-        throw; // Throw to prevent application from starting without database
+        Console.WriteLine("PostgreSQL not available, using GeoPackage fallback...");
+        var config = new DatabaseConfiguration
+        {
+            DatabaseType = "geopackage",
+            GeoPackageFolderPath = @"C:\temp\Rover1\"
+        };
+        return RoverDataReaderFactory.CreateReader(config);
     }
 });
 
-// Add ScentPolygonService configuration
-builder.Services.AddSingleton(new ScentPolygonConfiguration
-{
-    OmnidirectionalRadiusMeters = 30.0,
-    FanPolygonPoints = 15,
-    MinimumDistanceMultiplier = 0.4
-});
-
-// Add ScentPolygonService as a hosted service so it starts automatically
+// Simple scent polygon service
 builder.Services.AddSingleton<ScentPolygonService>();
 builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
 
 var app = builder.Build();
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-// Global state for tracking rover data updates
-var lastKnownSequence = new ConcurrentDictionary<string, int>();
-
-// Helper method to find GeoPackage file
-string FindGeoPackageFile()
-{
-    var possiblePaths = new[]
-    {
-        Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
-        Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
-        Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "Solutionresources", "RiverHeadForest.gpkg")
-    };
-    
-    foreach (var path in possiblePaths)
-    {
-        if (File.Exists(path))
-        {
-            logger.LogInformation("Found GeoPackage at: {Path}", Path.GetFullPath(path));
-            return path;
-        }
-    }
-    
-    return possiblePaths[0]; // Fallback
-}
-
-// Helper method to find the latest wind polygon file
-string FindLatestWindPolygonFile()
-{
-    const string roverDataPath = @"C:\temp\Rover1\";
-    
-    if (!Directory.Exists(roverDataPath))
-        return string.Empty;
-
-    // First, try the specific file from ConvertWinddataToPolygon
-    var specificFile = Path.Combine(roverDataPath, "rover_windpolygon.gpkg");
-    if (File.Exists(specificFile))
-    {
-        return specificFile;
-    }
-
-    // Fallback to timestamped files if the main file doesn't exist
-    var windPolygonFiles = Directory.GetFiles(roverDataPath, "rover_windpolygon*.gpkg")
-        .OrderByDescending(f => new FileInfo(f).LastWriteTime)
-        .ToArray();
-
-    return windPolygonFiles.Length > 0 ? windPolygonFiles[0] : string.Empty;
-}
-
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
-}
-
+// Simple middleware setup
 app.UseHttpsRedirection();
-
-// Configure static files with proper options
-app.UseStaticFiles(new StaticFileOptions
-{
-    OnPrepareResponse = ctx =>
-    {
-        // Add headers for better debugging
-        if (ctx.File.Name.EndsWith(".js"))
-        {
-            ctx.Context.Response.Headers.Append("Cache-Control", "no-cache");
-            logger.LogInformation("Serving JavaScript file: {Path}", ctx.File.PhysicalPath);
-        }
-    }
-});
-
+app.UseStaticFiles();
 app.UseRouting();
-
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
-// API Endpoints
-app.MapGet("/api/test", () => Results.Json(new { status = "OK", timestamp = DateTime.UtcNow }));
+// ====== API Endpoints (Optimized for Performance) ======
 
-// Debug endpoint to check JavaScript file
-app.MapGet("/api/debug/js-file", () =>
-{
-    var jsPath = Path.Combine(app.Environment.WebRootPath, "js", "leafletInit.js");
-    var exists = File.Exists(jsPath);
-    
-    if (exists)
-    {
-        var fileInfo = new FileInfo(jsPath);
-        var content = File.ReadAllText(jsPath);
-        var lines = content.Split('\n').Length;
-        
-        return Results.Json(new 
-        {
-            fileExists = true,
-            path = jsPath,
-            size = fileInfo.Length,
-            lastModified = fileInfo.LastWriteTime,
-            lineCount = lines,
-            firstLines = content.Split('\n').Take(5).ToArray()
-        });
-    }
-    
-    return Results.Json(new { fileExists = false, path = jsPath });
-});
+// Basic health check
+app.MapGet("/api/test", () => Results.Json(new { status = "OK", time = DateTime.Now }));
 
-app.MapGet("/api/riverhead-forest", async () =>
+// Forest boundary data
+app.MapGet("/api/forest", async () =>
 {
     try
     {
-        var geoPackagePath = FindGeoPackageFile();
-        if (!File.Exists(geoPackagePath))
+        var forestPath = FindForestFile();
+        if (!File.Exists(forestPath))
             return Results.NotFound("Forest data not found");
 
-        using var geoPackage = await GeoPackage.OpenAsync(geoPackagePath, 4326);
+        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
         var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        var readOptions = new ReadOptions(IncludeGeometry: true, Limit: 1);
         
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
+        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
         {
             if (feature.Geometry is Polygon polygon)
             {
                 var geoJsonWriter = new GeoJsonWriter();
                 var geoJsonGeometry = geoJsonWriter.Write(polygon);
                 
-                var featureCollection = new
+                return Results.Json(new
                 {
                     type = "FeatureCollection",
                     features = new[]
@@ -204,38 +86,35 @@ app.MapGet("/api/riverhead-forest", async () =>
                         new
                         {
                             type = "Feature",
-                            properties = new { name = "RiverHead Forest", description = "Forest boundary" },
+                            properties = new { name = "RiverHead Forest" },
                             geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
                         }
                     }
-                };
-                
-                return Results.Json(featureCollection);
+                });
             }
         }
         
-        return Results.NotFound("No forest polygon found");
+        return Results.NotFound("No forest data found");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Error loading forest polygon");
-        return Results.Problem($"Error loading forest polygon: {ex.Message}");
+        return Results.Problem($"Error: {ex.Message}");
     }
 });
 
+// Forest bounds for map centering
 app.MapGet("/api/forest-bounds", async () =>
 {
     try
     {
-        var geoPackagePath = FindGeoPackageFile();
-        if (!File.Exists(geoPackagePath))
-            return Results.NotFound("Forest data not found");
+        var forestPath = FindForestFile();
+        if (!File.Exists(forestPath))
+            return Results.NotFound();
 
-        using var geoPackage = await GeoPackage.OpenAsync(geoPackagePath, 4326);
+        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
         var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        var readOptions = new ReadOptions(IncludeGeometry: true, Limit: 1);
         
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
+        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
         {
             if (feature.Geometry is Polygon polygon)
             {
@@ -244,204 +123,251 @@ app.MapGet("/api/forest-bounds", async () =>
                 
                 return Results.Json(new
                 {
+                    center = new { lat = centroid.Y, lng = centroid.X },
                     bounds = new
                     {
-                        minLat = envelope.MinY,
-                        maxLat = envelope.MaxY,
-                        minLng = envelope.MinX,
-                        maxLng = envelope.MaxX
-                    },
-                    center = new { lat = centroid.Y, lng = centroid.X }
+                        minLat = envelope.MinY, maxLat = envelope.MaxY,
+                        minLng = envelope.MinX, maxLng = envelope.MaxX
+                    }
                 });
             }
         }
         
-        return Results.NotFound("No forest bounds found");
+        return Results.NotFound();
     }
-    catch (Exception ex)
+    catch
     {
-        return Results.Problem($"Error getting bounds: {ex.Message}");
+        return Results.NotFound();
     }
 });
 
-app.MapGet("/api/rover-data", async (IRoverDataReader roverReader) =>
+// OPTIMIZED: Latest rover measurement points (limited for performance)
+app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) =>
 {
     try
     {
-        await roverReader.InitializeAsync();
-        var measurements = await roverReader.GetAllMeasurementsAsync();
+        await reader.InitializeAsync();
         
-        var features = measurements.Select(m => new
+        // Get total count for statistics
+        var totalCount = await reader.GetMeasurementCountAsync();
+        
+        // Get limited number of latest measurements for performance
+        var measurements = await reader.GetAllMeasurementsAsync();
+        var limitedMeasurements = measurements
+            .OrderByDescending(m => m.Sequence)
+            .Take(limit ?? 100)
+            .OrderBy(m => m.Sequence) // Re-order chronologically
+            .ToList();
+        
+        var features = limitedMeasurements.Select(m => new
         {
             type = "Feature",
             properties = new
             {
-                sessionId = m.SessionId.ToString(),
                 sequence = m.Sequence,
-                recordedAt = m.RecordedAt.ToString("O"),
-                windDirectionDeg = m.WindDirectionDeg,
-                windSpeedMps = m.WindSpeedMps,
-                timestamp = m.RecordedAt.ToUnixTimeSeconds()
+                windDirection = m.WindDirectionDeg,
+                windSpeed = m.WindSpeedMps,
+                time = m.RecordedAt.ToString("HH:mm:ss")
             },
             geometry = new
             {
                 type = "Point",
                 coordinates = new[] { m.Longitude, m.Latitude }
             }
-        }).ToArray();
+        });
         
-        return Results.Json(new { type = "FeatureCollection", features });
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features,
+            metadata = new { 
+                totalCount, 
+                shownCount = limitedMeasurements.Count,
+                isLimited = totalCount > (limit ?? 100)
+            }
+        });
     }
     catch (Exception ex)
     {
-        return Results.Json(new { type = "FeatureCollection", features = new object[0] });
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features = new object[0],
+            error = ex.Message
+        });
     }
 });
 
-app.MapGet("/api/rover-data/updates", async (IRoverDataReader roverReader, string? clientId = null) =>
+// NEW: Rover trail as a single LineString for better performance with many points
+app.MapGet("/api/rover-trail", async (IRoverDataReader reader, int? limit = 500) =>
 {
     try
     {
-        await roverReader.InitializeAsync();
-        clientId ??= "default";
-        var lastSequence = lastKnownSequence.GetValueOrDefault(clientId, -1);
-        var newMeasurements = await roverReader.GetNewMeasurementsAsync(lastSequence);
+        await reader.InitializeAsync();
+        var measurements = await reader.GetAllMeasurementsAsync();
         
-        if (newMeasurements.Any())
-        {
-            var maxSequence = newMeasurements.Max(m => m.Sequence);
-            lastKnownSequence.AddOrUpdate(clientId, maxSequence, (key, oldValue) => Math.Max(oldValue, maxSequence));
-        }
+        if (!measurements.Any())
+            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
         
-        var features = newMeasurements.Select(m => new
+        // Get limited measurements for the trail
+        var limitedMeasurements = measurements
+            .OrderBy(m => m.Sequence)
+            .TakeLast(limit ?? 500)
+            .ToList();
+        
+        // Create a LineString from the coordinates
+        var coordinates = limitedMeasurements
+            .Select(m => new[] { m.Longitude, m.Latitude })
+            .ToArray();
+        
+        var lineFeature = new
         {
             type = "Feature",
             properties = new
             {
-                sessionId = m.SessionId.ToString(),
-                sequence = m.Sequence,
-                recordedAt = m.RecordedAt.ToString("O"),
-                windDirectionDeg = m.WindDirectionDeg,
-                windSpeedMps = m.WindSpeedMps,
-                timestamp = m.RecordedAt.ToUnixTimeSeconds()
+                name = "Rover Trail",
+                pointCount = limitedMeasurements.Count,
+                totalPoints = measurements.Count,
+                startTime = limitedMeasurements.First().RecordedAt.ToString("HH:mm:ss"),
+                endTime = limitedMeasurements.Last().RecordedAt.ToString("HH:mm:ss")
             },
             geometry = new
             {
-                type = "Point",
-                coordinates = new[] { m.Longitude, m.Latitude }
+                type = "LineString",
+                coordinates
             }
-        }).ToArray();
+        };
         
-        return Results.Json(new { type = "FeatureCollection", features, metadata = new { count = features.Length } });
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features = new[] { lineFeature }
+        });
     }
-    catch (Exception)
+    catch (Exception ex)
     {
-        return Results.Json(new { type = "FeatureCollection", features = new object[0], metadata = new { count = 0 } });
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features = new object[0],
+            error = ex.Message
+        });
     }
 });
 
-app.MapGet("/api/rover-data/stats", async (IRoverDataReader roverReader) =>
+// OPTIMIZED: Rover statistics for info display
+app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
 {
     try
     {
-        await roverReader.InitializeAsync();
-        var totalCount = await roverReader.GetMeasurementCountAsync();
-        var latestMeasurement = await roverReader.GetLatestMeasurementAsync();
+        await reader.InitializeAsync();
+        var totalCount = await reader.GetMeasurementCountAsync();
+        var latest = await reader.GetLatestMeasurementAsync();
         
         return Results.Json(new
         {
             totalMeasurements = totalCount,
-            latestSequence = latestMeasurement?.Sequence ?? -1,
-            latestTimestamp = latestMeasurement?.RecordedAt.ToString("O"),
-            latestPosition = latestMeasurement != null ? new { latitude = latestMeasurement.Latitude, longitude = latestMeasurement.Longitude } : null
+            latestSequence = latest?.Sequence ?? -1,
+            latestTime = latest?.RecordedAt.ToString("HH:mm:ss"),
+            latestPosition = latest != null ? new { 
+                lat = latest.Latitude, 
+                lng = latest.Longitude,
+                windSpeed = latest.WindSpeedMps,
+                windDirection = latest.WindDirectionDeg
+            } : null
         });
-    }
-    catch (Exception)
-    {
-        return Results.Json(new { totalMeasurements = 0, latestSequence = -1 });
-    }
-});
-
-app.MapGet("/api/wind-polygons", async () =>
-{
-    try
-    {
-        var windPolygonPath = FindLatestWindPolygonFile();
-        if (string.IsNullOrEmpty(windPolygonPath) || !File.Exists(windPolygonPath))
-            return Results.NotFound("Wind polygon data not available");
-
-        using var geoPackage = await GeoPackage.OpenAsync(windPolygonPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("wind_scent_polygons", new Dictionary<string, string>(), 4326);
-        var readOptions = new ReadOptions(IncludeGeometry: true, OrderBy: "sequence DESC", Limit: 50);
-        
-        var features = new List<object>();
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
-        {
-            if (feature.Geometry is Polygon polygon && polygon.IsValid)
-            {
-                var geoJsonWriter = new GeoJsonWriter();
-                var geoJsonGeometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonWriter.Write(polygon));
-                
-                features.Add(new
-                {
-                    type = "Feature",
-                    properties = new
-                    {
-                        sessionId = feature.Attributes["session_id"],
-                        sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture),
-                        recordedAt = feature.Attributes["recorded_at"],
-                        windDirectionDeg = int.Parse(feature.Attributes["wind_direction_deg"] ?? "0", CultureInfo.InvariantCulture),
-                        windSpeedMps = double.Parse(feature.Attributes["wind_speed_mps"] ?? "0", CultureInfo.InvariantCulture),
-                        scentAreaM2 = double.Parse(feature.Attributes["scent_area_m2"] ?? "0", CultureInfo.InvariantCulture),
-                        maxDistanceM = double.Parse(feature.Attributes["max_distance_m"] ?? "0", CultureInfo.InvariantCulture)
-                    },
-                    geometry = geoJsonGeometry
-                });
-            }
-        }
-        
-        return Results.Json(new { type = "FeatureCollection", features });
     }
     catch (Exception ex)
     {
-        return Results.Problem($"Error loading wind polygons: {ex.Message}");
+        return Results.Json(new { 
+            error = ex.Message,
+            totalMeasurements = 0
+        });
     }
 });
 
-app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService, ILogger<Program> logger, HttpContext http) =>
+// NEW: Sampling API - get evenly distributed points for large datasets
+app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize = 200) =>
 {
     try
     {
-        // Ensure no caching
-        http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
-        http.Response.Headers["Pragma"] = "no-cache";
-        http.Response.Headers["Expires"] = "0";
-        http.Response.Headers["ETag"] = $"\"{scentService.UnifiedVersion}\"";
-
-        var measurementCount = scentService.Count;
-        var unified = scentService.GetUnifiedScentPolygonCached();
-        var latestSeq = scentService.LatestPolygon?.Sequence ?? -1;
-        var version = scentService.UnifiedVersion;
-
-        logger.LogInformation("Combined coverage requested: polygons={Count}, version={Version}, latestSeq={LatestSeq}", 
-            measurementCount, version, latestSeq);
-
-        if (unified == null || !unified.IsValid)
+        await reader.InitializeAsync();
+        var measurements = await reader.GetAllMeasurementsAsync();
+        
+        if (!measurements.Any())
+            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
+        
+        var orderedMeasurements = measurements.OrderBy(m => m.Sequence).ToList();
+        var totalCount = orderedMeasurements.Count;
+        var requestedSample = sampleSize ?? 200;
+        
+        List<RoverMeasurement> sampledMeasurements;
+        
+        if (totalCount <= requestedSample)
         {
-            logger.LogWarning("No valid unified scent polygon available: polygons={Count}, latestSeq={LatestSeq}", 
-                measurementCount, latestSeq);
-            return Results.NotFound(new { 
-                error = "No valid unified scent polygon available", 
-                details = new { measurementCount, latestSequence = latestSeq, version },
-                timestamp = DateTimeOffset.UtcNow
-            });
+            // If we have fewer points than requested, return all
+            sampledMeasurements = orderedMeasurements;
         }
+        else
+        {
+            // Sample evenly across the dataset
+            sampledMeasurements = new List<RoverMeasurement>();
+            var step = (double)totalCount / requestedSample;
+            
+            for (int i = 0; i < requestedSample; i++)
+            {
+                var index = (int)Math.Round(i * step);
+                if (index >= totalCount) index = totalCount - 1;
+                sampledMeasurements.Add(orderedMeasurements[index]);
+            }
+        }
+        
+        var features = sampledMeasurements.Select(m => new
+        {
+            type = "Feature",
+            properties = new
+            {
+                sequence = m.Sequence,
+                windDirection = m.WindDirectionDeg,
+                windSpeed = m.WindSpeedMps,
+                time = m.RecordedAt.ToString("HH:mm:ss")
+            },
+            geometry = new
+            {
+                type = "Point",
+                coordinates = new[] { m.Longitude, m.Latitude }
+            }
+        });
+        
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features,
+            metadata = new {
+                totalCount,
+                sampleSize = sampledMeasurements.Count,
+                samplingRatio = (double)sampledMeasurements.Count / totalCount
+            }
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { 
+            type = "FeatureCollection", 
+            features = new object[0],
+            error = ex.Message
+        });
+    }
+});
+
+// Combined coverage area (the only scent visualization we need)
+app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService) =>
+{
+    try
+    {
+        var unified = scentService.GetUnifiedScentPolygonCached();
+        if (unified == null || !unified.IsValid)
+            return Results.NotFound("No coverage data available");
 
         var geoJsonWriter = new GeoJsonWriter();
-        var geoJsonGeometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonWriter.Write(unified.Polygon));
+        var geoJsonGeometry = geoJsonWriter.Write(unified.Polygon);
 
-        var response = new
+        return Results.Json(new
         {
             type = "FeatureCollection",
             features = new[]
@@ -452,271 +378,36 @@ app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService, IL
                     properties = new
                     {
                         totalPolygons = unified.PolygonCount,
-                        totalAreaM2 = unified.TotalAreaM2,
-                        totalAreaHectares = unified.TotalAreaM2 / 10000.0,
-                        coverageEfficiency = unified.CoverageEfficiency,
-                        averageWindSpeedMps = unified.AverageWindSpeedMps,
-                        windSpeedRange = new { min = unified.WindSpeedRange.Min, max = unified.WindSpeedRange.Max },
-                        timeRange = new { start = unified.EarliestMeasurement.ToString("O"), end = unified.LatestMeasurement.ToString("O") },
-                        sessionCount = unified.SessionIds.Count,
-                        vertexCount = unified.VertexCount,
-                        latestSequence = latestSeq,
-                        unifiedVersion = version,
-                        timestamp = DateTimeOffset.UtcNow.ToString("O")
+                        areaHectares = Math.Round(unified.TotalAreaM2 / 10000.0, 1),
+                        avgWindSpeed = Math.Round(unified.AverageWindSpeedMps, 1)
                     },
-                    geometry = geoJsonGeometry
+                    geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
                 }
-            },
-            metadata = new { 
-                source = "ScentPolygonLibrary", 
-                measurementCount, 
-                latestSequence = latestSeq, 
-                unifiedVersion = version, 
-                generatedAt = DateTimeOffset.UtcNow.ToString("O") 
             }
-        };
-
-        logger.LogInformation("Combined coverage response generated: area={Area}m², efficiency={Efficiency}%, version={Version}", 
-            unified.TotalAreaM2, unified.CoverageEfficiency * 100, version);
-
-        return Results.Json(response);
+        });
     }
-    catch (Exception ex)
+    catch
     {
-        logger.LogError(ex, "Error generating unified scent polygon");
-        return Results.Problem($"Error generating unified scent polygon: {ex.Message}");
+        return Results.NotFound();
     }
 });
 
-app.MapGet("/api/data-status", async (IRoverDataReader roverReader) =>
+// ====== Helper Functions ======
+
+string FindForestFile()
 {
-    var status = new
+    var possiblePaths = new[]
     {
-        timestamp = DateTimeOffset.UtcNow.ToString("O"),
-        sources = new
-        {
-            roverData = await CheckRoverDataStatus(roverReader),
-            forestData = await CheckForestDataStatus(),
-            windPolygons = await CheckWindPolygonStatus(),
-            combinedCoverage = await CheckCombinedCoverageStatus()
-        }
+        Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
     };
     
-    return Results.Json(status);
-});
-
-// Helper functions for status checks
-async Task<object> CheckRoverDataStatus(IRoverDataReader roverReader)
-{
-    try
-    {
-        await roverReader.InitializeAsync();
-        var count = await roverReader.GetMeasurementCountAsync();
-        var latest = await roverReader.GetLatestMeasurementAsync();
-        
-        return new
-        {
-            available = true,
-            measurementCount = count,
-            latestSequence = latest?.Sequence ?? -1,
-            latestTimestamp = latest?.RecordedAt.ToString("O")
-        };
-    }
-    catch (Exception ex)
-    {
-        return new { available = false, error = ex.Message };
-    }
+    return possiblePaths.FirstOrDefault(File.Exists) ?? possiblePaths[0];
 }
 
-async Task<object> CheckForestDataStatus()
-{
-    try
-    {
-        var geoPackagePath = FindGeoPackageFile();
-        if (!File.Exists(geoPackagePath))
-            return new { available = false, error = "Forest GeoPackage file not found" };
-            
-        using var geoPackage = await GeoPackage.OpenAsync(geoPackagePath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        var count = await layer.CountAsync();
-        
-        return new { available = true, polygonCount = count, path = geoPackagePath };
-    }
-    catch (Exception ex)
-    {
-        return new { available = false, error = ex.Message };
-    }
-}
+Console.WriteLine("Starting optimized rover tracker...");
+Console.WriteLine("Performance optimizations enabled for large datasets");
+Console.WriteLine("Individual wind polygons removed to reduce visual clutter");
+Console.WriteLine("Open your browser to see the clean map visualization");
 
-async Task<object> CheckWindPolygonStatus()
-{
-    try
-    {
-        var windPolygonPath = FindLatestWindPolygonFile();
-        if (string.IsNullOrEmpty(windPolygonPath) || !File.Exists(windPolygonPath))
-            return new { available = false, error = "Wind polygon file not found", expectedPath = @"C:\temp\Rover1\rover_windpolygon.gpkg" };
-            
-        using var geoPackage = await GeoPackage.OpenAsync(windPolygonPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("wind_scent_polygons", new Dictionary<string, string>(), 4326);
-        var count = await layer.CountAsync();
-        
-        return new { available = true, polygonCount = count, path = windPolygonPath };
-    }
-    catch (Exception ex)
-    {
-        return new { available = false, error = ex.Message };
-    }
-}
-
-async Task<object> CheckCombinedCoverageStatus()
-{
-    try
-    {
-        var scentService = app.Services.GetRequiredService<ScentPolygonService>();
-
-        var unified = scentService.GetUnifiedScentPolygon();
-        if (unified == null)
-        {
-            return new
-            {
-                available = false,
-                error = "No unified polygon could be generated",
-                source = "ScentPolygonLibrary"
-            };
-        }
-
-        return new
-        {
-            available = true,
-            source = "ScentPolygonLibrary",
-            polygonCount = unified.PolygonCount,
-            totalAreaM2 = unified.TotalAreaM2,
-            coverageEfficiency = unified.CoverageEfficiency,
-            timeRange = new
-            {
-                start = unified.EarliestMeasurement,
-                end = unified.LatestMeasurement
-            },
-            sessionCount = unified.SessionIds.Count
-        };
-    }
-    catch (Exception ex)
-    {
-        return new { available = false, error = ex.Message, source = "ScentPolygonLibrary" };
-    }
-}
-
-app.MapGet("/api/unified-status", (ScentPolygonService scentService, HttpContext http) =>
-{
-    // Ensure no caching for status endpoint
-    http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
-    http.Response.Headers["Pragma"] = "no-cache";
-    http.Response.Headers["Expires"] = "0";
-
-    // Quick debug info for client polling
-    var measurementCount = scentService.Count;
-    var latestPolygon = scentService.LatestPolygon;
-    var version = scentService.UnifiedVersion;
-    var hasValidUnified = scentService.GetUnifiedScentPolygonCached() != null;
-
-    return Results.Json(new {
-        polygonCount = measurementCount,
-        latestSequence = latestPolygon?.Sequence ?? -1,
-        unifiedVersion = version,
-        hasValidUnified = hasValidUnified,
-        lastPolygonTime = latestPolygon?.RecordedAt.ToString("HH:mm:ss"),
-        timestamp = DateTimeOffset.UtcNow.ToString("HH:mm:ss.fff")
-    });
-});
-
-app.MapPost("/api/unified-recompute", (ScentPolygonService scentService) =>
-{
-    var unified = scentService.ForceRecomputeUnified();
-    return unified == null ? Results.NotFound() : Results.Ok(new { unifiedVersion = scentService.UnifiedVersion });
-});
-
-app.MapGet("/api/unified-debug", async (ScentPolygonService scentService, IRoverDataReader roverReader) =>
-{
-    try
-    {
-        // Get current service state
-        var serviceCount = scentService.Count;
-        var latestPolygon = scentService.LatestPolygon;
-        var version = scentService.UnifiedVersion;
-        
-        // Manually check what the data reader sees
-        await roverReader.InitializeAsync();
-        var allMeasurements = await roverReader.GetAllMeasurementsAsync();
-        var readerCount = allMeasurements.Count;
-        var readerLatest = allMeasurements.LastOrDefault();
-        
-        // Check for new measurements manually
-        var lastSeq = latestPolygon?.Sequence ?? -1;
-        var newMeasurements = await roverReader.GetNewMeasurementsAsync(lastSeq);
-        
-        return Results.Json(new {
-            serviceState = new {
-                polygonCount = serviceCount,
-                latestSequence = latestPolygon?.Sequence ?? -1,
-                latestTime = latestPolygon?.RecordedAt.ToString("HH:mm:ss"),
-                unifiedVersion = version
-            },
-            readerState = new {
-                totalMeasurements = readerCount,
-                latestSequence = readerLatest?.Sequence ?? -1,
-                latestTime = readerLatest?.RecordedAt.ToString("HH:mm:ss"),
-                newMeasurementsSinceLastPoll = newMeasurements.Count
-            },
-            newMeasurements = newMeasurements.Select(m => new {
-                sequence = m.Sequence,
-                time = m.RecordedAt.ToString("HH:mm:ss"),
-                location = $"{m.Latitude:F6},{m.Longitude:F6}"
-            }).ToArray()
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Debug error: {ex.Message}");
-    }
-});
-
-app.MapPost("/api/unified-force-poll", async (ScentPolygonService scentService, IRoverDataReader roverReader) =>
-{
-    try
-    {
-        // Force a manual poll to see what happens
-        Console.WriteLine("[API] Manual poll requested");
-        await roverReader.InitializeAsync();
-        var latestPolygon = scentService.LatestPolygon;
-        var lastSeq = latestPolygon?.Sequence ?? -1;
-        var newMeasurements = await roverReader.GetNewMeasurementsAsync(lastSeq);
-        
-        Console.WriteLine($"[API] Manual poll found {newMeasurements.Count} new measurements since seq {lastSeq}");
-        
-        return Results.Json(new {
-            lastSequence = lastSeq,
-            newMeasurementsFound = newMeasurements.Count,
-            measurements = newMeasurements.Select(m => new {
-                sequence = m.Sequence,
-                time = m.RecordedAt.ToString("HH:mm:ss")
-            }).ToArray()
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Force poll error: {ex.Message}");
-    }
-});
-
-Console.WriteLine("Starting web application...");
-
-try
-{
-    app.Run();
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Application failed to start: {ex.Message}");
-    logger.LogCritical(ex, "Application failed to start");
-    throw;
-}
+app.Run();

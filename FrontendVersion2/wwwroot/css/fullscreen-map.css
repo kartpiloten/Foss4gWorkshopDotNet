@@ -1,0 +1,293 @@
+/* Fullscreen Map CSS - Mobile-Friendly Rover Tracker */
+
+/* Remove ALL default spacing and make page truly fullscreen */
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box;
+}
+
+/* Remove Blazor app container spacing */
+body > app,
+body > app > *,
+#app,
+.app,
+.main-layout {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+    position: relative;
+    background: transparent !important;
+}
+
+/* Ensure router and route view don't interfere */
+.blazor-app-container,
+[data-blazor-component],
+.route-view-container {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
+    background: transparent !important;
+}
+
+/* Map fills entire viewport */
+#map {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 1 !important; /* Base layer */
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    visibility: visible !important;
+}
+
+/* Debug: Make sure map container is visible */
+#map::before {
+    content: 'Map Loading...';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #999;
+    font-size: 1.2rem;
+    z-index: 0;
+}
+
+/* Single overlay container - HIGH z-index to ensure it's on top of all map layers */
+.overlay-top-left {
+    position: fixed !important;
+    top: 10px !important;
+    left: 10px !important;
+    z-index: 4000 !important; /* Increased z-index to be above all Leaflet layers */
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    padding: 12px 16px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+    min-width: 200px;
+    max-width: 280px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.overlay-top-left h3 {
+    margin: 0 0 10px 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2d5a27;
+    letter-spacing: 0.3px;
+    line-height: 1.2;
+}
+
+.data-mode-control {
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.data-mode-control label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 4px;
+}
+
+.data-mode-control select {
+    width: 100%;
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    background: white;
+    outline: none;
+    cursor: pointer;
+}
+
+.data-mode-control select:focus {
+    border-color: #4a7c59;
+    box-shadow: 0 0 0 2px rgba(74, 124, 89, 0.1);
+}
+
+.overlay-legend {
+    margin-top: 8px;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 8px;
+}
+
+.legend-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 6px;
+}
+
+.legend-items {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.legend-item {
+    font-size: 0.8rem;
+    color: #495057;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-item span {
+    font-size: 1.1em;
+    font-weight: bold;
+    line-height: 1;
+}
+
+/* Error and Debug overlays also need a high z-index */
+.overlay-error, .overlay-debug {
+    position: fixed !important;
+    z-index: 4001 !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+}
+
+.overlay-error {
+    bottom: 20px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    background: rgba(220, 53, 69, 0.95);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    max-width: 400px;
+    text-align: center;
+}
+
+.overlay-debug {
+    top: 10px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    background: rgba(13, 202, 240, 0.95);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    max-width: 400px;
+    text-align: center;
+}
+
+/* Leaflet controls positioning */
+.leaflet-control-container .leaflet-top.leaflet-left {
+    top: 10px !important;
+}
+
+.leaflet-control-container .leaflet-top.leaflet-right {
+    top: 10px !important;
+}
+
+.leaflet-control-container .leaflet-bottom.leaflet-right {
+    bottom: 10px !important;
+}
+
+.leaflet-control-container .leaflet-bottom.leaflet-left {
+    bottom: 10px !important;
+}
+
+/* Remove default Leaflet icon styling */
+.leaflet-div-icon {
+    background: transparent !important;
+    border: none !important;
+}
+
+.current-rover-icon {
+    background: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Leaflet popup styling */
+.leaflet-popup-content {
+    margin: 10px 14px !important;
+    line-height: 1.5;
+}
+
+/* Leaflet container must be visible */
+.leaflet-container {
+    background: #f0f0f0 !important;
+    visibility: visible !important;
+    display: block !important;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .overlay-top-left {
+        top: 8px !important;
+        left: 8px !important;
+        padding: 10px 12px;
+        min-width: 180px;
+        max-width: 240px;
+    }
+
+    .overlay-top-left h3 {
+        font-size: 1rem;
+    }
+
+    .data-mode-control label,
+    .legend-title {
+        font-size: 0.8rem;
+    }
+
+    .data-mode-control select {
+        font-size: 0.8rem;
+    }
+
+    .legend-item {
+        font-size: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .overlay-top-left {
+        top: 6px !important;
+        left: 6px !important;
+        padding: 8px 10px;
+        min-width: 160px;
+        max-width: 200px;
+    }
+
+    .overlay-top-left h3 {
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+    }
+
+    .data-mode-control {
+        margin-bottom: 8px;
+    }
+
+    .data-mode-control label,
+    .legend-title {
+        font-size: 0.75rem;
+    }
+
+    .data-mode-control select {
+        font-size: 0.75rem;
+        padding: 3px 6px;
+    }
+
+    .legend-item {
+        font-size: 0.7rem;
+        gap: 4px;
+    }
+
+    .legend-item span {
+        font-size: 1em;
+    }
+}}

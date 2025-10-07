@@ -1,220 +1,43 @@
 @page "/"
 @inject IJSRuntime JS
 
-<h3>RiverHead Forest Rover Tracker</h3>
-<p>Real-time tracking of rover movements with wind direction, speed visualization, and scent detection polygons within the RiverHead Forest boundary.</p>
+<!-- Correct static file reference (remove ~ which isn't resolved in .razor link tags) -->
+<link href="css/fullscreen-map.css" rel="stylesheet" />
 
-<div class="info-panel mb-3">
-    <div class="row">
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Forest Area</h5>
-                    <p class="card-text">Forest boundary loaded from GeoPackage data</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Combined Coverage</h5>
-                    <p class="card-text">Total scent detection area (background)</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Wind Feathers</h5>
-                    <p class="card-text">Individual scent detection polygons</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Rover Trail</h5>
-                    <p class="card-text">Historical path with measurements</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Wind Arrows</h5>
-                    <p class="card-text">Wind speed & direction vectors</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Live Position</h5>
-                    <p class="card-text">Real-time rover location</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+<!-- Fallback inline critical styles to ensure map always has size even if external CSS fails to load -->
+<style>
+    #map { position: fixed; inset: 0; width:100vw; height:100vh; z-index:1; background:#dcdcdc; }
+</style>
 
+<!-- Fullscreen map -->
 <div id="map"></div>
 
-<div class="legend mt-3">
-    <h5>Map Legend:</h5>
-    <div class="row">
-        <div class="col-md-4">
-            <h6>Base Layers:</h6>
-            <ul class="list-unstyled">
-                <li><span style="color: #4a7c59;">●</span> <strong>Green Area:</strong> RiverHead Forest boundary</li>
-                <li><span style="color: #DEB887; border: 2px dashed #8B4513;">⬛</span> <strong>Tan Area (dashed):</strong> Combined scent coverage</li>
-                <li><span style="color: #ff6b35;">●</span> <strong>Orange Line/Points:</strong> Rover trail and measurements</li>
-                <li><span style="color: red;">●</span> <strong>Red Marker:</strong> Current rover position</li>
-            </ul>
-        </div>
-        <div class="col-md-4">
-            <h6>Wind Visualization:</h6>
-            <ul class="list-unstyled">
-                <li><span style="color: #4dabf7;">▲</span> <strong>Wind Feathers:</strong> Individual scent detection zones</li>
-                <li><span style="color: #1c7ed6;">➤</span> <strong>Wind Arrows:</strong> Point measurements with direction</li>
-                <li><strong>Solid lines:</strong> Strong wind (>5 m/s)</li>
-                <li><strong>Dashed lines:</strong> Light wind (≤5 m/s)</li>
-            </ul>
-        </div>
-        <div class="col-md-4">
-            <h6>Wind Speed Colors:</h6>
-            <ul class="list-unstyled">
-                <li><span style="color: #4dabf7;">●</span> <strong>Light Blue:</strong> 0-2 m/s (Calm)</li>
-                <li><span style="color: #1c7ed6;">●</span> <strong>Blue:</strong> 2-4 m/s (Light breeze)</li>
-                <li><span style="color: #ffd43b;">●</span> <strong>Yellow:</strong> 4-8 m/s (Moderate breeze)</li>
-                <li><span style="color: #ff922b;">●</span> <strong>Orange:</strong> 8-10 m/s (Fresh breeze)</li>
-                <li><span style="color: #e03131;">●</span> <strong>Red:</strong> 10+ m/s (Strong wind)</li>
-            </ul>
+<!-- Overlay UI -->
+<div class="overlay-top-left">
+    <h3>River Head Forest Tracker</h3>
+    <div class="overlay-legend" style="margin-top:6px;">
+        <div class="legend-title">Wind Speed Colors:</div>
+        <div class="legend-items">
+            <div class="legend-item"><span style="color: #4dabf7;">●</span> 0-2 m/s</div>
+            <div class="legend-item"><span style="color: #1c7ed6;">●</span> 2-4 m/s</div>
+            <div class="legend-item"><span style="color: #ffd43b;">●</span> 4-8 m/s</div>
+            <div class="legend-item"><span style="color: #ff922b;">●</span> 8-10 m/s</div>
+            <div class="legend-item"><span style="color: #e03131;">●</span> 10+ m/s</div>
         </div>
     </div>
-    <div class="row mt-3">
-        <div class="col-12">
-            <p class="text-muted">
-                <small>
-                    <strong>Layer Ordering (back to front):</strong> Forest → Combined Coverage → Wind Feathers → Rover Trail → Wind Arrows → Current Position<br/>
-                    • <strong>Combined Coverage:</strong> Shows the total area where scent detection is possible (tan/beige background)<br/>
-                    • <strong>Wind Feathers:</strong> Individual scent detection polygons for each rover measurement (colored by wind speed)<br/>
-                    • <strong>Wind Arrows:</strong> Point vectors showing exact wind direction and speed at measurement locations<br/>
-                    • Map updates every 2 seconds with new rover data and periodically refreshes wind polygons<br/>
-                    • Click on any element to see detailed information<br/>
-                    • Use layer control (top right) to toggle visibility of different layers
-                </small>
-            </p>
-        </div>
+    <div style="margin-top:8px;font-size:0.7rem;color:#555;max-width:240px;">
+        Live rover path rendered as one continuous line. Old points are retained (no trimming).
     </div>
 </div>
 
 @if (!string.IsNullOrEmpty(_error))
 {
-    <div class="alert alert-warning mt-3">Map initialization failed: @_error</div>
+    <div class="overlay-error">Error: @_error</div>
 }
-
 @if (!string.IsNullOrEmpty(_debugInfo))
 {
-    <div class="alert alert-info mt-3">
-        <strong>Debug Info:</strong><br/>
-        @((MarkupString)_debugInfo.Replace("\n", "<br/>"))
-    </div>
+    <div class="overlay-debug">@_debugInfo</div>
 }
-
-<style>
-    .info-panel .card {
-        height: 100%;
-        border-left: 4px solid #4a7c59;
-    }
-    
-    .legend {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 5px;
-        border: 1px solid #dee2e6;
-    }
-    
-    .legend ul li {
-        margin-bottom: 5px;
-    }
-    
-    .legend h6 {
-        color: #495057;
-        font-weight: 600;
-        margin-bottom: 10px;
-    }
-    
-    #map {
-        height: 70vh;
-        border: 2px solid #dee2e6;
-        border-radius: 5px;
-    }
-     
-    /* Wind arrow icon styles - FIXED for proper alignment */
-    .wind-arrow-icon {
-        background: none !important;
-        border: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    
-    .current-wind-arrow-icon {
-        background: none !important;
-        border: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    
-    .rover-current-icon {
-        background: none !important;
-        border: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    
-    /* Ensure SVG arrows are properly displayed and centered */
-    .wind-arrow-icon svg,
-    .current-wind-arrow-icon svg,
-    .rover-current-icon svg {
-        display: block;
-        pointer-events: none;
-        position: relative;
-        margin: 0;
-        padding: 0;
-    }
-    
-    /* Remove any default Leaflet div icon styling that might interfere */
-    .leaflet-div-icon {
-        background: transparent !important;
-        border: none !important;
-    }
-    
-    /* Ensure proper layering */
-    .leaflet-marker-icon {
-        z-index: auto;
-    }
-    
-    /* Wind speed color legend helper */
-    .legend span[style*="color"] {
-        font-size: 1.2em;
-        font-weight: bold;
-    }
-    
-    /* Ensure proper popup positioning */
-    .leaflet-popup-content {
-        margin: 8px 12px !important;
-        line-height: 1.4;
-    }
-    
-    /* Special styling for combined coverage legend item */
-    .legend span[style*="border"] {
-        display: inline-block;
-        width: 20px;
-        height: 12px;
-        vertical-align: middle;
-        margin-right: 5px;
-    }
-</style>
 
 @code {
     private string? _error;
@@ -223,147 +46,57 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-        {
             await InitializeMapWithRetryAsync();
-        }
     }
 
     private async Task InitializeMapWithRetryAsync()
     {
         const int maxRetries = 5;
-        const int retryDelayMs = 1000;
-
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
             {
-                _debugInfo = $"Attempt {attempt}/{maxRetries}: Checking script availability...";
+                _debugInfo = $"Initializing map... ({attempt}/{maxRetries})";
                 StateHasChanged();
+                await Task.Delay(300 * attempt);
 
-                // Wait for scripts to load
-                await Task.Delay(500 * attempt); // Increasing delay for each retry
-
-                // Check if Leaflet is available
                 var leafletAvailable = await JS.InvokeAsync<bool>("eval", "typeof L !== 'undefined'");
-                
                 if (!leafletAvailable)
                 {
-                    _debugInfo += $"\nLeaflet library not available on attempt {attempt}";
-                    if (attempt == maxRetries)
-                    {
-                        _error = "Leaflet library failed to load. Please check your internet connection.";
-                        StateHasChanged();
-                        return;
-                    }
+                    if (attempt == maxRetries) _error = "Leaflet library failed to load";
                     continue;
                 }
 
-                // Check if our function is available
-                var functionAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initLeafletMap === 'function'");
-                
-                if (!functionAvailable)
+                var fnAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initLeafletMap === 'function'");
+                if (!fnAvailable)
                 {
-                    _debugInfo += $"\ninitLeafletMap function not available on attempt {attempt}";
                     if (attempt == maxRetries)
                     {
-                        _error = "JavaScript function 'initLeafletMap' not found. Please check if leafletInit.js is loading properly.";
-                        _debugInfo += "\nTrying to load the script manually...";
-                        
-                        // Try to load the script manually
+                        _error = "Map initialization function not found";
                         await TryLoadScriptManuallyAsync();
-                        return;
                     }
                     continue;
                 }
-
-                // Both Leaflet and our function are available
-                _debugInfo += $"\nAll dependencies available, initializing map...";
-                StateHasChanged();
 
                 await JS.InvokeVoidAsync("initLeafletMap");
-                
-                _debugInfo = "Map initialization completed successfully!";
-                _error = null;
-                StateHasChanged();
+                _debugInfo = null; _error = null; StateHasChanged();
                 return;
-
-            }
-            catch (JSException jsex)
-            {
-                _debugInfo += $"\nJavaScript error on attempt {attempt}: {jsex.Message}";
-                if (attempt == maxRetries)
-                {
-                    _error = $"JavaScript error: {jsex.Message}";
-                }
             }
             catch (Exception ex)
             {
-                _debugInfo += $"\nGeneral error on attempt {attempt}: {ex.Message}";
-                if (attempt == maxRetries)
-                {
-                    _error = $"Unexpected error: {ex.Message}";
-                }
-            }
-
-            if (attempt < maxRetries)
-            {
-                await Task.Delay(retryDelayMs);
+                if (attempt == maxRetries) _error = ex.Message;
             }
         }
-
         StateHasChanged();
     }
 
     private async Task TryLoadScriptManuallyAsync()
     {
-        try
+        var load = @"return new Promise((resolve,reject)=>{if (typeof window.initLeafletMap==='function'){resolve(true);return;}const s=document.createElement('script');s.src='js/leafletInit.js';s.onload=()=>setTimeout(()=>typeof window.initLeafletMap==='function'?resolve(true):reject(),120);s.onerror=()=>reject();document.head.appendChild(s);});";
+        if (await JS.InvokeAsync<bool>("eval", load))
         {
-            // Try to load the script dynamically
-            var loadScript = @"
-                return new Promise((resolve, reject) => {
-                    if (typeof window.initLeafletMap === 'function') {
-                        resolve(true);
-                        return;
-                    }
-                    
-                    const script = document.createElement('script');
-                    script.src = 'js/leafletInit.js';
-                    script.onload = () => {
-                        setTimeout(() => {
-                            if (typeof window.initLeafletMap === 'function') {
-                                resolve(true);
-                            } else {
-                                reject('Function still not available after manual load');
-                            }
-                        }, 100);
-                    };
-                    script.onerror = () => reject('Failed to load script');
-                    document.head.appendChild(script);
-                });
-            ";
-
-            var loaded = await JS.InvokeAsync<bool>("eval", loadScript);
-            
-            if (loaded)
-            {
-                _debugInfo += "\nScript loaded manually, initializing map...";
-                StateHasChanged();
-                
-                await JS.InvokeVoidAsync("initLeafletMap");
-                
-                _debugInfo = "Map initialization completed successfully after manual script load!";
-                _error = null;
-            }
-            else
-            {
-                _error = "Failed to load JavaScript function even with manual loading.";
-            }
+            await JS.InvokeVoidAsync("initLeafletMap");
+            _error = null; _debugInfo = null;
         }
-        catch (Exception ex)
-        {
-            _error = $"Manual script loading failed: {ex.Message}";
-        }
-        
-        StateHasChanged();
     }
 }

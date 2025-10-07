@@ -11,8 +11,9 @@ public static class ScentPolygonCalculator
     private static readonly GeometryFactory DefaultGeometryFactory = new(new PrecisionModel(), 4326);
 
     /// <summary>
-    /// Creates a scent polygon representing downwind scent detection and omnidirectional detection around the dog.
-    /// The polygon extends in the downwind direction (where scent would be carried by the wind).
+    /// Creates a scent polygon representing upwind scent detection and omnidirectional detection around the dog.
+    /// The polygon extends in the upwind direction (where scent sources would be detected from).
+    /// For dog scent detection: scents are carried FROM upwind sources TO the dog by the wind.
     /// </summary>
     public static Polygon CreateScentPolygon(
         double latitude,
@@ -34,9 +35,10 @@ public static class ScentPolygonCalculator
 
         // Convert wind direction to radians
         // Wind direction indicates where wind is coming FROM
-        // Scent polygons should extend DOWNWIND (where wind is going)
-        // So we add 180° to get the downwind direction
-        var windRadians = ((windDirectionDeg + 180) % 360) * Math.PI / 180.0;
+        // For DOG scent detection: polygon should extend UPWIND (where scent sources are)
+        // The dog detects scents that are carried TO the dog by the wind
+        // So we use the wind direction directly (no +180°)
+        var windRadians = (windDirectionDeg % 360) * Math.PI / 180.0;
 
         // Dog's position
         var dogPoint = geometryFactory.CreatePoint(new Coordinate(longitude, latitude));
@@ -44,7 +46,7 @@ public static class ScentPolygonCalculator
 
         try
         {
-            // 1. Create the downwind fan polygon (scent detection area)
+            // 1. Create the upwind fan polygon (scent detection area)
             var fanCoordinates = new List<Coordinate>();
             fanCoordinates.Add(new Coordinate(longitude, latitude));
 
@@ -357,11 +359,12 @@ public static class ScentPolygonCalculator
 
     /// <summary>
     /// Calculates maximum scent detection distance based on wind speed
+    /// For dog scent detection: stronger wind carries scents further from upwind sources
     /// </summary>
     public static double CalculateMaxScentDistance(double windSpeedMps)
     {
         // Scent detection model based on wind speed
-        // Higher wind speed = better scent transport, but also more dilution
+        // Higher wind speed = better scent transport from upwind sources
 
         if (windSpeedMps < 0.5) // Very light wind
             return 60.0; // Limited scent transport
@@ -377,10 +380,11 @@ public static class ScentPolygonCalculator
 
     /// <summary>
     /// Calculates the fan angle (half-angle) for scent detection based on wind speed
+    /// For dog scent detection: stronger wind creates more focused scent cone from upwind
     /// </summary>
     public static double CalculateFanAngle(double windSpeedMps)
     {
-        // Fan angle in radians - higher wind speed = narrower, more focused scent cone
+        // Fan angle in radians - higher wind speed = narrower, more focused scent cone from upwind
 
         if (windSpeedMps < 1.0) // Light wind - wide dispersion
             return 30.0 * Math.PI / 180.0; // ±30 degrees

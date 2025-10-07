@@ -20,7 +20,15 @@
 
     <!-- Leaflet CSS (CDN) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <style>#map { height: 70vh; }</style>
+    
+    <style>
+        /* Remove any default spacing that might interfere with fullscreen map */
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body>
     <app>
