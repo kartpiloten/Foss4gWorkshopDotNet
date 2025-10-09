@@ -1,7 +1,6 @@
+using MapPiloteGeopackageHelper;
 using ReadRoverDBStubLibrary;
 using ScentPolygonLibrary;
-using MapPiloteGeopackageHelper;
-using NetTopologySuite.IO;
 using System.Globalization;
 
 Console.WriteLine("========================================");
@@ -13,12 +12,14 @@ Console.WriteLine($"Output GeoPackage: {TesterConfiguration.OUTPUT_GEOPACKAGE_PA
 Console.WriteLine();
 
 var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (s, e) =>
-{    
+Console.CancelKeyPress += HandleCancelKeyPress;
+
+void HandleCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+{
     e.Cancel = true;
     cts.Cancel();
     Console.WriteLine("\nShutdown requested...");
-};
+}
 
 // Create database configuration
 var databaseConfig = TesterConfiguration.CreateDatabaseConfig();

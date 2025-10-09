@@ -1,5 +1,4 @@
 using NetTopologySuite.Geometries;
-using System.Globalization;
 
 namespace ScentPolygonLibrary;
 

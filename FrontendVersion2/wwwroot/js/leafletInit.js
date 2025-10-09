@@ -1,14 +1,14 @@
 // ====== Fullscreen Leaflet Map (Single Rover Trail Version) ======
 // Loading Rover Tracker with a Single Persistent Trail
 
-console.log('?? Loading Rover Tracker (single trail mode)...');
+console.log('??? Loading Rover Tracker (single trail mode)...');
 
 let roverTrailPolyline = null;
 let roverTrailCoords = []; // Persist coordinates client-side
 let lastTrailPointCount = 0;
 
 window.initLeafletMap = async function() {
-    console.log('?? Initializing map (trail only)...');
+    console.log('??? Initializing map (trail only)...');
 
     let mapCenter = [-36.718362, 174.577555];
     let mapZoom = 12;
@@ -81,7 +81,7 @@ window.initLeafletMap = async function() {
     
     async function loadInitialTrail() {
         try {
-            console.log('?? Loading initial rover trail...');
+            console.log('??? Loading initial rover trail...');
             const response = await fetch('/api/rover-trail?limit=5000'); // big number; server limits if needed
             if (!response.ok) return;
             
@@ -156,23 +156,34 @@ window.initLeafletMap = async function() {
             const p = stats.latestPosition;
             
             const marker = L.circleMarker([p.lat, p.lng], {
-                radius: 6,
+                radius: 12,  // Doubled from 6
                 color: '#d00000',
-                weight: 2,
+                weight: 4,   // Doubled from 2
                 fillColor: '#ff4d4d',
                 fillOpacity: 0.9
             });
             
             marker.bindPopup(`
-                <strong>Current Rover</strong><br/>
-                Seq: ${stats.latestSequence}<br/>
-                Wind: ${p.windSpeed} m/s @ ${p.windDirection}°<br/>
-                Points: ${lastTrailPointCount}
+                <strong style="font-size: 2em;">Current Rover</strong><br/>
+                <span style="font-size: 1.8em;">Seq: ${stats.latestSequence}<br/>
+                Wind: ${p.windSpeed} m/s<br/>
+                Direction: ${p.windDirection} degrees<br/>
+                Points: ${lastTrailPointCount}</span>
             `);
             
-            // Permanent tooltip label with wind info
-            const labelHtml = `${Number(p.windSpeed).toFixed(1)} m/s @ ${p.windDirection}°`;
-            marker.bindTooltip(labelHtml, { permanent: true, direction: 'right', offset: [10, 0], className: 'rover-wind-label' });
+            // Permanent tooltip label with wind info - TWO ROWS, DOUBLED SIZE
+            const labelHtml = `
+                <div style="font-size: 24px; font-weight: bold; line-height: 1.3;">
+                    <div>${Number(p.windSpeed).toFixed(1)} m/s</div>
+                    <div>${p.windDirection} degrees</div>
+                </div>
+            `;
+            marker.bindTooltip(labelHtml, { 
+                permanent: true, 
+                direction: 'right', 
+                offset: [20, 0], 
+                className: 'rover-wind-label-large' 
+            });
             
             layer.addLayer(marker);
         } catch (error) {

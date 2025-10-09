@@ -1,4 +1,4 @@
-﻿/* Fullscreen Map CSS - Mobile-Friendly Rover Tracker */
+/* Fullscreen Map CSS - Mobile-Friendly Rover Tracker (OpenLayers) */
 
 /* Remove ALL default spacing and make page truly fullscreen */
 html, body {
@@ -68,7 +68,7 @@ body > app > *,
     position: fixed !important;
     top: 10px !important;
     left: 10px !important;
-    z-index: 4000 !important; /* Increased z-index to be above all Leaflet layers */
+    z-index: 4000 !important; /* Increased z-index to be above all OpenLayers layers */
     background: rgba(255, 255, 255, 0.95);
     border-radius: 8px;
     padding: 12px 16px;
@@ -81,7 +81,7 @@ body > app > *,
 
 .overlay-top-left h3 {
     margin: 0 0 10px 0;
-    font-size: 4.4rem; /* Doubled from 2.2rem */
+    font-size: 2.2rem; /* Doubled from 1.1rem */
     font-weight: 700;
     color: #2d5a27;
     letter-spacing: 0.3px;
@@ -183,64 +183,31 @@ body > app > *,
     text-align: center;
 }
 
-/* Leaflet controls positioning */
-.leaflet-control-container .leaflet-top.leaflet-left {
-    top: 10px !important;
+/* OpenLayers controls positioning */
+.ol-control {
+    position: absolute;
 }
 
-.leaflet-control-container .leaflet-top.leaflet-right {
-    top: 10px !important;
+.ol-zoom {
+    top: 10px;
+    left: 10px;
 }
 
-.leaflet-control-container .leaflet-bottom.leaflet-right {
-    bottom: 10px !important;
+.ol-attribution {
+    right: 10px;
+    bottom: 10px;
 }
 
-.leaflet-control-container .leaflet-bottom.leaflet-left {
-    bottom: 10px !important;
-}
-
-/* Remove default Leaflet icon styling */
-.leaflet-div-icon {
-    background: transparent !important;
-    border: none !important;
-}
-
-.current-rover-icon {
-    background: none !important;
-    border: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* Leaflet popup styling - DOUBLED */
-.leaflet-popup-content {
-    margin: 20px 28px !important; /* Doubled from 10px 14px */
+/* OpenLayers popup styling - DOUBLED */
+.ol-popup {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 1.8rem; /* Doubled from 0.9rem */
     line-height: 1.5;
-    font-size: 1.8rem; /* Added doubled base font size */
 }
 
-/* Leaflet container must be visible */
-.leaflet-container {
-    background: #f0f0f0 !important;
-    visibility: visible !important;
-    display: block !important;
-}
-
-/* Large wind label styling for two-row display */
-.rover-wind-label-large {
-    background: rgba(255, 255, 255, 0.95) !important;
-    border: 2px solid #d00000 !important;
-    border-radius: 6px !important;
-    padding: 8px 12px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-    font-weight: bold !important;
-    color: #d00000 !important;
-    white-space: nowrap !important;
-}
-
-.rover-wind-label-large::before {
-    display: none !important;
+.ol-popup strong {
+    font-weight: 600;
+    color: #2d5a27;
 }
 
 /* Mobile responsive - adjusted for doubled sizes */
@@ -254,7 +221,7 @@ body > app > *,
     }
 
     .overlay-top-left h3 {
-        font-size: 4rem; /* Doubled from 2rem */
+        font-size: 2rem; /* Doubled from 1rem */
     }
 
     .data-mode-control label,
@@ -281,7 +248,7 @@ body > app > *,
     }
 
     .overlay-top-left h3 {
-        font-size: 3.6rem; /* Doubled from 1.8rem */
+        font-size: 1.8rem; /* Doubled from 0.9rem */
         margin-bottom: 8px;
     }
 
@@ -307,65 +274,4 @@ body > app > *,
     .legend-item span {
         font-size: 2em; /* Doubled from 1em */
     }
-}
-
-.wind-indicator {
-    position: absolute;
-    bottom: 100px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 5000;
-    font-weight: bold;
-    color: #333;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.wind-indicator .value {
-    font-size: 2.4rem;
-    color: #d00000;
-}
-
-.wind-indicator .unit {
-    font-size: 1.4rem;
-    color: #666;
-}
-
-.wind-indicator::before {
-    content: '🌬️';
-    font-size: 2.4rem;
-    display: inline-block;
-    vertical-align: middle;
-    margin-right: 8px;
-}
-
-/* Added wind speed section styling */
-.wind-speed {
-    position: absolute;
-    top: 10px; /* Align with other elements */
-    right: 10px;
-    z-index: 5050; /* Above wind indicator */
-    background: rgba(255, 255, 255, 0.9);
-    border: 2px solid #d00000;
-    border-radius: 8px;
-    padding: 8px 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    font-size: 1.8rem;
-    font-weight: 600;
-    color: #d00000;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.wind-speed .value {
-    font-size: 2.4rem;
-    line-height: 1;
-}
-
-.wind-speed .unit {
-    font-size: 1.4rem;
-    color: #666;
 }

@@ -14,7 +14,7 @@
 
 <!-- Overlay UI -->
 <div class="overlay-top-left">
-    <h3>FrontendLeaflet Rover Tracker</h3>
+    <h3>FrontendOpenLayers Rover Tracker</h3>
     <div style="margin-top:8px;font-size:1.4rem;color:#555;max-width:240px;">
         Live rover path rendered as one continuous line. Old points are retained (no trimming).
     </div>
@@ -46,18 +46,18 @@
         {
             try
             {
-                _debugInfo = $"Initializing map... ({attempt}/{maxRetries})";
+                _debugInfo = $"Initializing OpenLayers map... ({attempt}/{maxRetries})";
                 StateHasChanged();
                 await Task.Delay(300 * attempt);
 
-                var leafletAvailable = await JS.InvokeAsync<bool>("eval", "typeof L !== 'undefined'");
-                if (!leafletAvailable)
+                var olAvailable = await JS.InvokeAsync<bool>("eval", "typeof ol !== 'undefined'");
+                if (!olAvailable)
                 {
-                    if (attempt == maxRetries) _error = "Leaflet library failed to load";
+                    if (attempt == maxRetries) _error = "OpenLayers library failed to load";
                     continue;
                 }
 
-                var fnAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initLeafletMap === 'function'");
+                var fnAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initOpenLayersMap === 'function'");
                 if (!fnAvailable)
                 {
                     if (attempt == maxRetries)
@@ -68,7 +68,7 @@
                     continue;
                 }
 
-                await JS.InvokeVoidAsync("initLeafletMap");
+                await JS.InvokeVoidAsync("initOpenLayersMap");
                 _debugInfo = null; _error = null; StateHasChanged();
                 return;
             }
@@ -82,10 +82,10 @@
 
     private async Task TryLoadScriptManuallyAsync()
     {
-        var load = @"return new Promise((resolve,reject)=>{if (typeof window.initLeafletMap==='function'){resolve(true);return;}const s=document.createElement('script');s.src='js/leafletInit.js';s.onload=()=>setTimeout(()=>typeof window.initLeafletMap==='function'?resolve(true):reject(),120);s.onerror=()=>reject();document.head.appendChild(s);});";
+        var load = @"return new Promise((resolve,reject)=>{if (typeof window.initOpenLayersMap==='function'){resolve(true);return;}const s=document.createElement('script');s.src='js/openlayersInit.js';s.onload=()=>setTimeout(()=>typeof window.initOpenLayersMap==='function'?resolve(true):reject(),120);s.onerror=()=>reject();document.head.appendChild(s);});";
         if (await JS.InvokeAsync<bool>("eval", load))
         {
-            await JS.InvokeVoidAsync("initLeafletMap");
+            await JS.InvokeVoidAsync("initOpenLayersMap");
             _error = null; _debugInfo = null;
         }
     }

@@ -1,12 +1,12 @@
 {
   "profiles": {
-    "FrontendLeaflet": {
+    "FrontendOpenLayers": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:5007;http://localhost:5008"
+      "applicationUrl": "https://localhost:5009;http://localhost:5010"
     }
   }
 }

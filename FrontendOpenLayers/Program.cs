@@ -6,7 +6,7 @@ using ScentPolygonLibrary;
 
 // ====== Simple Rover Visualization Application ======
 
-Console.WriteLine("=== FrontendLeaflet Rover Tracker ===");
+Console.WriteLine("=== FrontendOpenLayers Rover Tracker ===");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -405,9 +405,9 @@ string FindForestFile()
     return possiblePaths.FirstOrDefault(File.Exists) ?? possiblePaths[0];
 }
 
-Console.WriteLine("Starting FrontendLeaflet rover tracker...");
+Console.WriteLine("Starting FrontendOpenLayers rover tracker...");
 Console.WriteLine("Performance optimizations enabled for large datasets");
-Console.WriteLine("Using Leaflet.js for interactive mapping");
+Console.WriteLine("Individual wind polygons removed to reduce visual clutter");
 Console.WriteLine("Open your browser to see the clean map visualization");
 
 app.Run();

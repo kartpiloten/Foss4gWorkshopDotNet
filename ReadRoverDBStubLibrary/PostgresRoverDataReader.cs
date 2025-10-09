@@ -1,5 +1,6 @@
 using NetTopologySuite.Geometries;
 using Npgsql;
+using System.Data;
 
 namespace ReadRoverDBStubLibrary;
 
@@ -17,20 +18,29 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        await CreateAndOpenConnectionAsync(cancellationToken);
+    }
+
+    private async Task EnsureConnectionOpenAsync(CancellationToken cancellationToken = default)
+    {
+        if (_connection == null || _connection.State != ConnectionState.Open)
+        {
+            await CreateAndOpenConnectionAsync(cancellationToken);
+        }
+    }
+
+    private async Task CreateAndOpenConnectionAsync(CancellationToken cancellationToken = default)
+    {
         try
         {
-            // Build an Npgsql data source with NetTopologySuite enabled for PostGIS geometry mapping
+            _dataSource?.Dispose();
+            _connection?.Dispose();
             _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
                 .UseNetTopologySuite()
                 .Build();
-            
             _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-
             // Test if the table exists and is accessible
-            const string testSql = @"
-                SELECT COUNT(*) FROM roverdata.rover_measurements LIMIT 1;
-            ";
-            
+            const string testSql = @"SELECT COUNT(*) FROM roverdata.rover_measurements LIMIT 1;";
             await using var testCmd = new NpgsqlCommand(testSql, _connection);
             await testCmd.ExecuteScalarAsync(cancellationToken);
         }
@@ -58,16 +68,12 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     public override async Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default)
     {
-        if (_connection == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
+        await EnsureConnectionOpenAsync(cancellationToken);
         try
         {
             const string countSql = "SELECT COUNT(*) FROM roverdata.rover_measurements;";
-            
             await using var cmd = new NpgsqlCommand(countSql, _connection);
             var result = await cmd.ExecuteScalarAsync(cancellationToken);
-            
             return Convert.ToInt64(result);
         }
         catch (OperationCanceledException)
@@ -76,39 +82,32 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
+            CleanupConnection();
             throw new InvalidOperationException($"Failed to get measurement count: {ex.Message}", ex);
         }
     }
 
     public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default)
     {
-        if (_connection == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
+        await EnsureConnectionOpenAsync(cancellationToken);
         try
         {
             var sql = @"
                 SELECT session_id, sequence, recorded_at, latitude, longitude, 
                        wind_direction_deg, wind_speed_mps, geom
                 FROM roverdata.rover_measurements";
-            
             if (!string.IsNullOrWhiteSpace(whereClause))
             {
                 sql += $" WHERE {whereClause}";
             }
-            
             sql += " ORDER BY sequence ASC;";
-            
             await using var cmd = new NpgsqlCommand(sql, _connection);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            
             var measurements = new List<RoverMeasurement>();
-            
             while (await reader.ReadAsync(cancellationToken))
             {
                 measurements.Add(ConvertToRoverMeasurement(reader));
             }
-            
             return measurements;
         }
         catch (OperationCanceledException)
@@ -117,15 +116,14 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
+            CleanupConnection();
             throw new InvalidOperationException($"Failed to get measurements: {ex.Message}", ex);
         }
     }
 
     public override async Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
     {
-        if (_connection == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
+        await EnsureConnectionOpenAsync(cancellationToken);
         try
         {
             const string sql = @"
@@ -134,19 +132,14 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 FROM roverdata.rover_measurements
                 WHERE sequence > @lastSequence
                 ORDER BY sequence ASC;";
-            
             await using var cmd = new NpgsqlCommand(sql, _connection);
             cmd.Parameters.AddWithValue("@lastSequence", lastSequence);
-            
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            
             var measurements = new List<RoverMeasurement>();
-            
             while (await reader.ReadAsync(cancellationToken))
             {
                 measurements.Add(ConvertToRoverMeasurement(reader));
             }
-            
             return measurements;
         }
         catch (OperationCanceledException)
@@ -155,15 +148,14 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
+            CleanupConnection();
             throw new InvalidOperationException($"Failed to get new measurements: {ex.Message}", ex);
         }
     }
 
     public override async Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
     {
-        if (_connection == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
+        await EnsureConnectionOpenAsync(cancellationToken);
         try
         {
             const string sql = @"
@@ -172,15 +164,12 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 FROM roverdata.rover_measurements
                 ORDER BY sequence DESC
                 LIMIT 1;";
-            
             await using var cmd = new NpgsqlCommand(sql, _connection);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-            
             if (await reader.ReadAsync(cancellationToken))
             {
                 return ConvertToRoverMeasurement(reader);
             }
-            
             return null;
         }
         catch (OperationCanceledException)
@@ -189,6 +178,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
+            CleanupConnection();
             throw new InvalidOperationException($"Failed to get latest measurement: {ex.Message}", ex);
         }
     }
@@ -216,6 +206,22 @@ public class PostgresRoverDataReader : RoverDataReaderBase
             windSpeed,
             geometry
         );
+    }
+
+    private void CleanupConnection()
+    {
+        try
+        {
+            _connection?.Dispose();
+        }
+        catch { }
+        _connection = null;
+        try
+        {
+            _dataSource?.Dispose();
+        }
+        catch { }
+        _dataSource = null;
     }
 
     protected override void Dispose(bool disposing)
