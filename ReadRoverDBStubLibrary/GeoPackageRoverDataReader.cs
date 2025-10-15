@@ -9,8 +9,6 @@ namespace ReadRoverDBStubLibrary;
 /// </summary>
 public class GeoPackageRoverDataReader : RoverDataReaderBase
 {
-    private GeoPackage? _geoPackage;
-    private GeoPackageLayer? _measurementsLayer;
     private string? _dbPath;
     private string? _folderPath;
     private const string LayerName = "rover_measurements";
@@ -40,92 +38,111 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         if (string.IsNullOrEmpty(_dbPath))
             throw new InvalidOperationException("Database path not specified");
 
-        try
+        if (!File.Exists(_dbPath))
         {
-            if (!File.Exists(_dbPath))
-            {
-                throw new FileNotFoundException($"GeoPackage file not found: {_dbPath}");
-            }
-            
-            // Open the GeoPackage in read-only mode
-            _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
+            throw new FileNotFoundException($"GeoPackage file not found: {_dbPath}");
+        }
+        
+        // Just verify the file exists, don't keep it open
+    }
 
-            // Get the rover_measurements layer (schema is empty since we're just reading)
-            _measurementsLayer = await _geoPackage.EnsureLayerAsync(LayerName, new Dictionary<string, string>(), 4326);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Error opening GeoPackage: {ex.Message}", ex);
-        }
+    private async Task<(GeoPackage geoPackage, GeoPackageLayer layer)> OpenGeoPackageAsync(CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(_dbPath))
+            throw new InvalidOperationException("Database path not specified");
+
+        var geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
+        var layer = await geoPackage.EnsureLayerAsync(LayerName, new Dictionary<string, string>(), 4326);
+        return (geoPackage, layer);
     }
 
     public override async Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default)
     {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
-        return await _measurementsLayer.CountAsync();
+        var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
+        try
+        {
+            return await layer.CountAsync();
+        }
+        finally
+        {
+            geoPackage.Dispose();
+        }
     }
 
     public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default)
     {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
-        var readOptions = new ReadOptions(
-            IncludeGeometry: true,
-            WhereClause: whereClause,
-            OrderBy: "sequence ASC"
-        );
-
-        var measurements = new List<RoverMeasurement>();
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
+        var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
+        try
         {
-            measurements.Add(ConvertToRoverMeasurement(feature));
-        }
+            var readOptions = new ReadOptions(
+                IncludeGeometry: true,
+                WhereClause: whereClause,
+                OrderBy: "sequence ASC"
+            );
 
-        return measurements;
+            var measurements = new List<RoverMeasurement>();
+
+            await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
+            {
+                measurements.Add(ConvertToRoverMeasurement(feature));
+            }
+
+            return measurements;
+        }
+        finally
+        {
+            geoPackage.Dispose();
+        }
     }
 
     public override async Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
     {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
-        var readOptions = new ReadOptions(
-            IncludeGeometry: true,
-            WhereClause: $"sequence > {lastSequence}",
-            OrderBy: "sequence ASC"
-        );
-
-        var measurements = new List<RoverMeasurement>();
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
+        var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
+        try
         {
-            measurements.Add(ConvertToRoverMeasurement(feature));
-        }
+            var readOptions = new ReadOptions(
+                IncludeGeometry: true,
+                WhereClause: $"sequence > {lastSequence}",
+                OrderBy: "sequence ASC"
+            );
 
-        return measurements;
+            var measurements = new List<RoverMeasurement>();
+
+            await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
+            {
+                measurements.Add(ConvertToRoverMeasurement(feature));
+            }
+
+            return measurements;
+        }
+        finally
+        {
+            geoPackage.Dispose();
+        }
     }
 
     public override async Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
     {
-        if (_measurementsLayer == null)
-            throw new InvalidOperationException("Reader not initialized. Call InitializeAsync first.");
-
-        var readOptions = new ReadOptions(
-            IncludeGeometry: true,
-            OrderBy: "sequence DESC",
-            Limit: 1
-        );
-
-        await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
+        var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
+        try
         {
-            return ConvertToRoverMeasurement(feature);
-        }
+            var readOptions = new ReadOptions(
+                IncludeGeometry: true,
+                OrderBy: "sequence DESC",
+                Limit: 1
+            );
 
-        return null;
+            await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
+            {
+                return ConvertToRoverMeasurement(feature);
+            }
+
+            return null;
+        }
+        finally
+        {
+            geoPackage.Dispose();
+        }
     }
 
     private static RoverMeasurement ConvertToRoverMeasurement(FeatureRecord feature)
@@ -156,8 +173,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         {
             if (disposing)
             {
-                _measurementsLayer = null;
-                _geoPackage?.Dispose();
+                // No resources to dispose anymore since we open/close on each operation
             }
             base.Dispose(disposing);
         }

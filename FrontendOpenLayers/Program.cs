@@ -17,9 +17,10 @@ builder.Services.AddServerSideBlazor();
 // Simple rover data reader configuration
 builder.Services.AddSingleton<IRoverDataReader>(provider =>
 {
-    // Try PostgreSQL first, fallback to GeoPackage
-    try
+    string DatabaseType = "geopackage";
+    if (DatabaseType == "postgres")
     {
+        
         var config = new DatabaseConfiguration
         {
             DatabaseType = "postgres",
@@ -29,7 +30,7 @@ builder.Services.AddSingleton<IRoverDataReader>(provider =>
         Console.WriteLine("Connecting to PostgreSQL database...");
         return RoverDataReaderFactory.CreateReader(config);
     }
-    catch
+    else
     {
         Console.WriteLine("PostgreSQL not available, using GeoPackage fallback...");
         var config = new DatabaseConfiguration

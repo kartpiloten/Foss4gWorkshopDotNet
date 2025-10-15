@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.1" />
+    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.2" />
   </ItemGroup>
 
 </Project>

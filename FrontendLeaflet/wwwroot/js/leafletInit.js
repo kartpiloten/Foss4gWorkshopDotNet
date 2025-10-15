@@ -87,13 +87,23 @@ window.initLeafletMap = async function() {
             
             const geo = await response.json();
             
-            if (!geo.features?.length) return;
+            if (!geo.features?.length) {
+                console.log('? No trail features returned');
+                return;
+            }
             
             const ls = geo.features[0];
             
-            if (ls.geometry?.type !== 'LineString') return;
+            if (ls.geometry?.type !== 'LineString') {
+                console.log('? Trail geometry is not a LineString:', ls.geometry?.type);
+                return;
+            }
             
             roverTrailCoords = ls.geometry.coordinates.map(c => [c[1], c[0]]); // Leaflet uses [lat,lng]
+            
+            console.log(`?? Trail coordinates loaded: ${roverTrailCoords.length} points`);
+            console.log(`?? First point: [${roverTrailCoords[0]}]`);
+            console.log(`?? Last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
             
             // Create the polyline for the rover trail
             roverTrailPolyline = L.polyline(roverTrailCoords, {
@@ -126,17 +136,27 @@ window.initLeafletMap = async function() {
             
             const coords = ls.geometry.coordinates.map(c => [c[1], c[0]]);
             
-            if (coords.length <= lastTrailPointCount) return; // nothing new
+            console.log(`?? Checking for new points: current=${lastTrailPointCount}, fetched=${coords.length}`);
+            
+            if (coords.length <= lastTrailPointCount) {
+                console.log('?? No new points to add');
+                return; // nothing new
+            }
 
             // Add new points to the existing trail
             const newSeg = coords.slice(lastTrailPointCount); // new tail points
+            console.log(`? Adding ${newSeg.length} new points to trail`);
             roverTrailCoords.push(...newSeg);
             lastTrailPointCount = coords.length;
             
             // Update the polyline with new coordinates
-            roverTrailPolyline.setLatLngs(roverTrailCoords);
-            
-            console.log(`? Trail extended. Total points: ${lastTrailPointCount}`);
+            if (roverTrailPolyline) {
+                roverTrailPolyline.setLatLngs(roverTrailCoords);
+                console.log(`? Trail updated. Total points: ${lastTrailPointCount}`);
+                console.log(`?? New last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
+            } else {
+                console.log('? Trail polyline is null!');
+            }
         } catch (e) {
             console.log('? Append trail failed', e);
         }
@@ -154,6 +174,8 @@ window.initLeafletMap = async function() {
             layer.clearLayers();
             
             const p = stats.latestPosition;
+            
+            console.log(`?? Latest position: [${p.lat}, ${p.lng}] (seq: ${stats.latestSequence})`);
             
             const marker = L.circleMarker([p.lat, p.lng], {
                 radius: 12,  // Doubled from 6

@@ -8,11 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.9" />
-    <PackageReference Include="Npgsql" Version="9.0.3" />
-    <PackageReference Include="Npgsql.NetTopologySuite" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+    <PackageReference Include="Npgsql.NetTopologySuite" Version="9.0.4" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
-    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.0" />
+    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.2" />
   </ItemGroup>
 
 </Project>
