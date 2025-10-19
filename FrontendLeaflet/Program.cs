@@ -3,6 +3,7 @@ using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
 using ReadRoverDBStubLibrary;
 using ScentPolygonLibrary;
+using Microsoft.Extensions.Options;
 
 // ====== Simple Rover Visualization Application ======
 
@@ -13,34 +14,19 @@ var builder = WebApplication.CreateBuilder(args);
 // Basic services
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
+builder.Services.Configure<DatabaseConfiguration>(
+    builder.Configuration.GetSection("DatabaseConfiguration"));
 
-// Simple rover data reader configuration
 // Simple rover data reader configuration
 builder.Services.AddSingleton<IRoverDataReader>(provider =>
 {
-    string DatabaseType = "geopackage";
-    if (DatabaseType == "postgres")
-    {
+    var options = provider.GetRequiredService<IOptions<DatabaseConfiguration>>();
+    var databaseConfig = options.Value ?? throw new InvalidOperationException("Database configuration is unavailable.");
 
-        var config = new DatabaseConfiguration
-        {
-            DatabaseType = "postgres",
-            PostgresConnectionString = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30"
-        };
-
-        Console.WriteLine("Connecting to PostgreSQL database...");
-        return RoverDataReaderFactory.CreateReader(config);
-    }
-    else
-    {
-        Console.WriteLine("PostgreSQL not available, using GeoPackage fallback...");
-        var config = new DatabaseConfiguration
-        {
-            DatabaseType = "geopackage",
-            GeoPackageFolderPath = @"C:\temp\Rover1\"
-        };
-        return RoverDataReaderFactory.CreateReader(config);
-    }
+    var reader = RoverDataReaderFactory.CreateReader(databaseConfig);
+    reader.InitializeAsync().GetAwaiter().GetResult();
+    Console.WriteLine($"Rover data reader initialized for database type '{databaseConfig.DatabaseType}'.");
+    return reader;
 });
 
 // Simple scent polygon service
@@ -358,7 +344,7 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
 });
 
 // Combined coverage area (the only scent visualization we need)
-app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService) =>
+app.MapGet("/api/combined-coverage", (ScentPolygonService scentService) =>
 {
     try
     {

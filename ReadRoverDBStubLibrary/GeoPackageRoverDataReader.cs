@@ -33,7 +33,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
     }
 
-    public override async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public override Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_dbPath))
             throw new InvalidOperationException("Database path not specified");
@@ -44,6 +44,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
         
         // Just verify the file exists, don't keep it open
+        return Task.CompletedTask;
     }
 
     private async Task<(GeoPackage geoPackage, GeoPackageLayer layer)> OpenGeoPackageAsync(CancellationToken cancellationToken = default)
@@ -155,6 +156,12 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         var windDirection = short.Parse(feature.Attributes["wind_direction_deg"] ?? "0", CultureInfo.InvariantCulture);
         var windSpeed = float.Parse(feature.Attributes["wind_speed_mps"] ?? "0", CultureInfo.InvariantCulture);
 
+        if (feature.Geometry == null)
+            throw new InvalidDataException("Feature missing geometry");
+
+        if (feature.Geometry is not Point point)
+            throw new InvalidDataException("Feature geometry is not a Point");
+
         return new RoverMeasurement(
             sessionId,
             sequence,
@@ -163,7 +170,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
             longitude,
             windDirection,
             windSpeed,
-            (Point)feature.Geometry
+            point
         );
     }
 

@@ -1,5 +1,6 @@
 ﻿using ConvertWinddataToPolygon;
 using MapPiloteGeopackageHelper;
+using Microsoft.Extensions.Configuration;
 using NetTopologySuite.Geometries;
 using ReadRoverDBStubLibrary;
 using System.Globalization;
@@ -10,8 +11,16 @@ Console.WriteLine("=== Wind Data to Polygon Converter ===");
 Console.WriteLine("Converting rover wind measurements to scent area polygons...");
 Console.WriteLine();
 
-var outputGeopackagePath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, "rover_windpolygon.gpkg");
-var outputGeoJsonPath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, "rover_windpolygon.geojson");
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables()
+    .Build();
+
+ConverterConfiguration.Initialize(configuration);
+
+var outputGeopackagePath = Path.Combine(ConverterConfiguration.OutputFolderPath, "rover_windpolygon.gpkg");
+var outputGeoJsonPath = Path.Combine(ConverterConfiguration.OutputFolderPath, "rover_windpolygon.geojson");
 
 try
 {
@@ -53,11 +62,11 @@ try
     if (roverReader == null)
     {
         // Check if GeoPackage file exists
-        if (!File.Exists(ConverterConfiguration.GEOPACKAGE_FILE_PATH))
+        if (!File.Exists(ConverterConfiguration.GeoPackageFilePath))
         {
             Console.WriteLine($"ERROR: Neither PostgreSQL nor GeoPackage data source is available!");
             Console.WriteLine($"PostgreSQL: Connection failed");
-            Console.WriteLine($"GeoPackage: File not found at {ConverterConfiguration.GEOPACKAGE_FILE_PATH}");
+            Console.WriteLine($"GeoPackage: File not found at {ConverterConfiguration.GeoPackageFilePath}");
             Console.WriteLine();
             Console.WriteLine("TROUBLESHOOTING:");
             Console.WriteLine("1. Run the RoverSimulator first to generate data");
@@ -66,7 +75,7 @@ try
             return;
         }
         
-        Console.WriteLine($"Using GeoPackage file: {ConverterConfiguration.GEOPACKAGE_FILE_PATH}");
+        Console.WriteLine($"Using GeoPackage file: {ConverterConfiguration.GeoPackageFilePath}");
         var geopackageConfig = ConverterConfiguration.CreateDatabaseConfig("geopackage");
         roverReader = await RoverDataReaderFactory.CreateReaderWithValidationAsync(geopackageConfig);
         Console.WriteLine("✓ Connected to GeoPackage file");
@@ -138,8 +147,8 @@ try
                 {
                     // Try alternative filename
                     var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                    outputGeopackagePath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, $"rover_windpolygon_{timestamp}.gpkg");
-                    outputGeoJsonPath = Path.Combine(ConverterConfiguration.OUTPUT_FOLDER_PATH, $"rover_windpolygon_{timestamp}.geojson");
+                    outputGeopackagePath = Path.Combine(ConverterConfiguration.OutputFolderPath, $"rover_windpolygon_{timestamp}.gpkg");
+                    outputGeoJsonPath = Path.Combine(ConverterConfiguration.OutputFolderPath, $"rover_windpolygon_{timestamp}.geojson");
                     Console.WriteLine($"File locked, trying alternative: {Path.GetFileName(outputGeopackagePath)}");
                 }
                 else
@@ -715,35 +724,39 @@ static Polygon SmoothPolygon(Polygon polygon, GeometryFactory geometryFactory)
 /// </summary>
 public static class ConverterConfiguration
 {
-    // Database configuration - prefer the same as RoverSimulator for consistency
-    public const string DEFAULT_DATABASE_TYPE = "postgres"; // Try PostgreSQL first
-    public const string FALLBACK_DATABASE_TYPE = "geopackage"; // Fallback to GeoPackage
-    
-    // PostgreSQL configuration - should match RoverSimulator settings
-    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
-    
-    // GeoPackage configuration
-    public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
-    public const string GEOPACKAGE_FILE_PATH = @"C:\temp\Rover1\rover_data.gpkg";
-    
-    // Output configuration
-    public const string OUTPUT_FOLDER_PATH = @"C:\temp\Rover1\";
-    
-    /// <summary>
-    /// Creates database configuration with fallback logic
-    /// </summary>
+    private static IConfiguration? _configuration;
+
+    public static void Initialize(IConfiguration configuration)
+    {
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    }
+
+    private static IConfiguration Configuration =>
+        _configuration ?? throw new InvalidOperationException("ConverterConfiguration.Initialize must be called before accessing configuration values.");
+
+    public static string OutputFolderPath =>
+        Configuration.GetValue<string>("Converter:OutputFolderPath") ?? @"C:\temp\Rover1\";
+
+    public static string GeoPackageFolderPath =>
+        Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? OutputFolderPath;
+
+    public static string GeoPackageFilePath =>
+        Configuration.GetValue<string>("Converter:GeoPackageFilePath") ??
+        Path.Combine(GeoPackageFolderPath, "rover_data.gpkg");
+
     public static DatabaseConfiguration CreateDatabaseConfig(string? preferredType = null)
     {
-        var dbType = preferredType ?? DEFAULT_DATABASE_TYPE;
-        
+        var section = Configuration.GetSection("DatabaseConfiguration");
+        var databaseType = preferredType ?? section.GetValue<string>("DatabaseType") ?? "geopackage";
+
         return new DatabaseConfiguration
         {
-            DatabaseType = dbType,
-            PostgresConnectionString = POSTGRES_CONNECTION_STRING,
-            GeoPackageFolderPath = GEOPACKAGE_FOLDER_PATH,
-            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
-            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+            DatabaseType = databaseType,
+            PostgresConnectionString = section.GetValue<string>("PostgresConnectionString"),
+            GeoPackageFolderPath = GeoPackageFolderPath,
+            ConnectionTimeoutSeconds = section.GetValue<int?>("ConnectionTimeoutSeconds") ?? ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+            MaxRetryAttempts = section.GetValue<int?>("MaxRetryAttempts") ?? ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
+            RetryDelayMs = section.GetValue<int?>("RetryDelayMs") ?? ReaderDefaults.DEFAULT_RETRY_DELAY_MS
         };
     }
 }

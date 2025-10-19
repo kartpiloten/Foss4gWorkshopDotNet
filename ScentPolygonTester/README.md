@@ -50,13 +50,13 @@ Initializing scent polygon service...
 Latest Scent Polygon:
   Sequence: 1249
   Location: (-36.741165, 174.632611)
-  Wind: 3.1 m/s @ 138°
-  Area: 18234 m²
+  Wind: 3.1 m/s @ 138Â°
+  Area: 18234 mÂ²
   Polygon: POLYGON(174.632611,-36.741165) (174.633298,-36.740798) ...
 
 Unified Scent Polygon (All Polygons):
   Combines: 1250 individual polygons
-  Total Area: 2847392 m² (284.74 hectares)
+  Total Area: 2847392 mÂ² (284.74 hectares)
   Coverage Efficiency: 13.0%
   Time Range: 20.8 minutes
   ...
@@ -74,7 +74,7 @@ Press Ctrl+C to exit...
 #### Live Updates
 ```
 [GeoPackage] Polygon update received: 3 new polygons, total: 1250
-[GeoPackage] Updating unified polygon (attempt 2): 1250 polygons, 2847392 m², version 2
+[GeoPackage] Updating unified polygon (attempt 2): 1250 polygons, 2847392 mÂ², version 2
 [GeoPackage] ? Updated unified polygon: 284.74 hectares, 127 vertices
 
 [Status] Total polygons: 1250, Latest: 1249, Source: PostgresRoverData

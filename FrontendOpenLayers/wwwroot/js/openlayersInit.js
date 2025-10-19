@@ -76,13 +76,13 @@ window.initOpenLayersMap = async function() {
         source: currentPositionSource,
         style: new ol.style.Style({
             image: new ol.style.Circle({
-                radius: 12,  // Doubled from 6
+                radius: 12,  
                 fill: new ol.style.Fill({
                     color: '#ff4d4d'
                 }),
                 stroke: new ol.style.Stroke({
                     color: '#d00000',
-                    width: 4  // Doubled from 2
+                    width: 4  
                 })
             })
         }),

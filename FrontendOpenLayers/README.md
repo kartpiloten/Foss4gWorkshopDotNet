@@ -23,7 +23,7 @@ A Blazor application demonstrating geospatial web development with OpenLayers.
 1. .NET 9 SDK
 2. Either:
    - PostgreSQL database with rover data, OR
-   - GeoPackage files in `C:\temp\Rover1\`
+   - GeoPackage files in the folder specified by `DatabaseConfiguration:GeoPackageFolderPath` in `appsettings.json` (defaults to `C:\temp\Rover1\`)
 
 ### Running the Application
 ```bash

@@ -1,14 +1,23 @@
 using MapPiloteGeopackageHelper;
+using Microsoft.Extensions.Configuration;
 using ReadRoverDBStubLibrary;
 using ScentPolygonLibrary;
 using System.Globalization;
+
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables()
+    .Build();
+
+TesterConfiguration.Initialize(configuration);
 
 Console.WriteLine("========================================");
 Console.WriteLine("     SCENT POLYGON SERVICE TESTER");
 Console.WriteLine("     WITH GEOPACKAGE OUTPUT");
 Console.WriteLine("========================================");
-Console.WriteLine($"Database type preference: {TesterConfiguration.DEFAULT_DATABASE_TYPE.ToUpper()}");
-Console.WriteLine($"Output GeoPackage: {TesterConfiguration.OUTPUT_GEOPACKAGE_PATH}");
+Console.WriteLine($"Database type preference: {TesterConfiguration.DefaultDatabaseType.ToUpper()}");
+Console.WriteLine($"Output GeoPackage: {TesterConfiguration.OutputGeoPackagePath}");
 Console.WriteLine();
 
 var cts = new CancellationTokenSource();
@@ -65,7 +74,7 @@ try
     );
 
     // Initialize GeoPackage updater with file locking handling
-    geoPackageUpdater = new GeoPackageUpdater(TesterConfiguration.OUTPUT_GEOPACKAGE_PATH);
+    geoPackageUpdater = new GeoPackageUpdater(TesterConfiguration.OutputGeoPackagePath);
     await geoPackageUpdater.InitializeAsync();
 
     // Subscribe to polygon updates
@@ -98,8 +107,8 @@ try
         Console.WriteLine("\nLatest Scent Polygon:");
         Console.WriteLine($"  Sequence: {latest.Sequence}");
         Console.WriteLine($"  Location: ({latest.Latitude:F6}, {latest.Longitude:F6})");
-        Console.WriteLine($"  Wind: {latest.WindSpeedMps:F1} m/s @ {latest.WindDirectionDeg}°");
-        Console.WriteLine($"  Area: {latest.ScentAreaM2:F0} m²");
+        Console.WriteLine($"  Wind: {latest.WindSpeedMps:F1} m/s @ {latest.WindDirectionDeg}Â°");
+        Console.WriteLine($"  Area: {latest.ScentAreaM2:F0} mÂ²");
         Console.WriteLine($"  Polygon: {ScentPolygonCalculator.PolygonToText(latest.Polygon)}");
     }
     else
@@ -119,7 +128,7 @@ try
         Console.WriteLine("No unified polygon could be generated.");
     }
 
-    Console.WriteLine($"\nGeoPackage output: {TesterConfiguration.OUTPUT_GEOPACKAGE_PATH}");
+    Console.WriteLine($"\nGeoPackage output: {TesterConfiguration.OutputGeoPackagePath}");
     Console.WriteLine("Layer name: unified");
     Console.WriteLine("The GeoPackage will be updated automatically as new rover data arrives.");
     Console.WriteLine("\nNOTE: If the file is locked by QGIS or another application, updates will be skipped.");
@@ -278,8 +287,8 @@ public class GeoPackageUpdater : IDisposable
         if (_disposed || _geoPackage == null || _unifiedLayer == null)
             return;
 
-        // Use async lock equivalent
-        await Task.Run(async () =>
+        // Use task-based approach to avoid blocking
+        await Task.Run(() =>
         {
             lock (_updateLock)
             {
@@ -294,7 +303,7 @@ public class GeoPackageUpdater : IDisposable
                     }
 
                     _updateAttempts++;
-                    Console.WriteLine($"[GeoPackage] Updating unified polygon (attempt {_updateAttempts}): {unified.PolygonCount} polygons, {unified.TotalAreaM2:F0} m², version {scentService.UnifiedVersion}");
+                    Console.WriteLine($"[GeoPackage] Updating unified polygon (attempt {_updateAttempts}): {unified.PolygonCount} polygons, {unified.TotalAreaM2:F0} mÂ², version {scentService.UnifiedVersion}");
 
                     // Clear existing data and insert new
                     Task.Run(async () =>
@@ -419,26 +428,45 @@ public class GeoPackageUpdater : IDisposable
 // ===== APPLICATION CONFIGURATION =====
 public static class TesterConfiguration
 {
-    public const string DEFAULT_DATABASE_TYPE = "postgres";
-    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
-    public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
-    
-    // Output GeoPackage configuration
-    public const string OUTPUT_FOLDER_PATH = @"C:\temp\Rover1\";
-    public const string OUTPUT_GEOPACKAGE_FILENAME = "ScentPolygons.gpkg";
-    public static string OUTPUT_GEOPACKAGE_PATH => Path.Combine(OUTPUT_FOLDER_PATH, OUTPUT_GEOPACKAGE_FILENAME);
+    private static IConfiguration? _configuration;
+
+    public static void Initialize(IConfiguration configuration)
+    {
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    }
+
+    private static IConfiguration Configuration =>
+        _configuration ?? throw new InvalidOperationException("TesterConfiguration.Initialize must be called before accessing configuration values.");
+
+    public static string DefaultDatabaseType =>
+        Configuration.GetValue<string>("DatabaseConfiguration:DatabaseType") ?? "geopackage";
+
+    public static string GeoPackageFolderPath =>
+        Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? @"C:\temp\Rover1/";
+
+    public static string OutputFolderPath =>
+        Configuration.GetValue<string>("Tester:OutputFolderPath") ?? GeoPackageFolderPath;
+
+    public static string OutputGeoPackageFilename =>
+        Configuration.GetValue<string>("Tester:OutputGeoPackageFilename") ?? "ScentPolygons.gpkg";
+
+    public static string OutputGeoPackagePath =>
+        Configuration.GetValue<string>("Tester:OutputGeoPackagePath") ??
+        Path.Combine(OutputFolderPath, OutputGeoPackageFilename);
 
     public static DatabaseConfiguration CreateDatabaseConfig(string? databaseType = null)
     {
-        var dbType = databaseType ?? DEFAULT_DATABASE_TYPE;
+        var section = Configuration.GetSection("DatabaseConfiguration");
+        var dbType = databaseType ?? section.GetValue<string>("DatabaseType") ?? "geopackage";
+
         return new DatabaseConfiguration
         {
             DatabaseType = dbType,
-            PostgresConnectionString = POSTGRES_CONNECTION_STRING,
-            GeoPackageFolderPath = GEOPACKAGE_FOLDER_PATH,
-            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
-            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+            PostgresConnectionString = section.GetValue<string>("PostgresConnectionString"),
+            GeoPackageFolderPath = GeoPackageFolderPath,
+            ConnectionTimeoutSeconds = section.GetValue<int?>("ConnectionTimeoutSeconds") ?? ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+            MaxRetryAttempts = section.GetValue<int?>("MaxRetryAttempts") ?? ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
+            RetryDelayMs = section.GetValue<int?>("RetryDelayMs") ?? ReaderDefaults.DEFAULT_RETRY_DELAY_MS
         };
     }
 }
