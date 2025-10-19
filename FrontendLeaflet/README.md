@@ -22,7 +22,7 @@ A simplified Blazor application for learning geospatial web development concepts
 1. .NET 9 SDK
 2. Either:
    - PostgreSQL database with rover data (configure in `DatabaseConfiguration` section of `appsettings.json`), OR
-   - GeoPackage files in the folder specified by `DatabaseConfiguration:GeoPackageFolderPath` (defaults to `/tmp/`)
+   - GeoPackage files in the folder specified by `DatabaseConfiguration:GeoPackageFolderPath` (defaults to `C:\temp\Rover1\`)
 
 ### Running the Application
 ```bash

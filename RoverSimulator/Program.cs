@@ -258,7 +258,7 @@ class Program
         }
     }
 
-    private static async Task HandleGeoPackageFileLocks(GeoPackageRoverDataRepository geoRepo)
+    private static Task HandleGeoPackageFileLocks(GeoPackageRoverDataRepository geoRepo)
     {
         Console.WriteLine("\n" + new string('=', 60));
         Console.WriteLine("📁 GEOPACKAGE FILE LOCK CHECK");
@@ -324,9 +324,10 @@ class Program
         }
 
         Console.WriteLine(new string('=', 60));
+        return Task.CompletedTask;
     }
 
-    private static async Task HandleSimulationError(Exception ex)
+    private static Task HandleSimulationError(Exception ex)
     {
         if (ex.Message.Contains("locked"))
         {
@@ -344,6 +345,7 @@ class Program
             Console.WriteLine("- Check firewall settings on both client and server");
             Console.WriteLine("- Change Database.Type to 'geopackage' in appsettings.json to use local storage");
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>

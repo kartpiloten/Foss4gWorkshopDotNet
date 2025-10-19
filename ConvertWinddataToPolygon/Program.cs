@@ -735,7 +735,7 @@ public static class ConverterConfiguration
         _configuration ?? throw new InvalidOperationException("ConverterConfiguration.Initialize must be called before accessing configuration values.");
 
     public static string OutputFolderPath =>
-        Configuration.GetValue<string>("Converter:OutputFolderPath") ?? "/tmp/";
+        Configuration.GetValue<string>("Converter:OutputFolderPath") ?? @"C:\temp\Rover1\";
 
     public static string GeoPackageFolderPath =>
         Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? OutputFolderPath;

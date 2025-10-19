@@ -48,9 +48,9 @@ dotnet run
 ```
 
 The program will:
-1. Read rover measurements from the path configured via `Converter:GeoPackageFilePath` (defaults to `/tmp/rover_data.gpkg`)
+1. Read rover measurements from the path configured via `Converter:GeoPackageFilePath` (defaults to `C:\temp\Rover1\rover_data.gpkg`)
 2. Generate comprehensive scent polygons for each measurement
-3. Save results to the folder specified by `Converter:OutputFolderPath` (defaults to `/tmp/`)
+3. Save results to the folder specified by `Converter:OutputFolderPath` (defaults to `C:\temp\Rover1\`)
 4. Export alternative GeoJSON format for web compatibility
 
 ## Visualization

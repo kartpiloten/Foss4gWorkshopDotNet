@@ -442,7 +442,7 @@ public static class TesterConfiguration
         Configuration.GetValue<string>("DatabaseConfiguration:DatabaseType") ?? "geopackage";
 
     public static string GeoPackageFolderPath =>
-        Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? "/tmp/Rover1/";
+        Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? @"C:\temp\Rover1/";
 
     public static string OutputFolderPath =>
         Configuration.GetValue<string>("Tester:OutputFolderPath") ?? GeoPackageFolderPath;

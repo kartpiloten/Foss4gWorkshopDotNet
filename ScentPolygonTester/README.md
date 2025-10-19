@@ -30,7 +30,7 @@ Press **Ctrl+C** to stop the service and exit gracefully.
      WITH GEOPACKAGE OUTPUT
 ========================================
 Database type preference: POSTGRES
-Output GeoPackage: /tmp/ScentPolygons.gpkg
+Output GeoPackage: C:\temp\Rover1\ScentPolygons.gpkg
 
 ============================================================
 DATABASE CONNECTION SETUP (SCENT POLYGON SERVICE)
@@ -61,7 +61,7 @@ Unified Scent Polygon (All Polygons):
   Time Range: 20.8 minutes
   ...
 
-GeoPackage output: /tmp/ScentPolygons.gpkg
+GeoPackage output: C:\temp\Rover1\ScentPolygons.gpkg
 Layer name: unified
 The GeoPackage will be updated automatically as new rover data arrives.
 

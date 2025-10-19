@@ -33,7 +33,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
     }
 
-    public override async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public override Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(_dbPath))
             throw new InvalidOperationException("Database path not specified");
@@ -44,6 +44,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
         
         // Just verify the file exists, don't keep it open
+        return Task.CompletedTask;
     }
 
     private async Task<(GeoPackage geoPackage, GeoPackageLayer layer)> OpenGeoPackageAsync(CancellationToken cancellationToken = default)
