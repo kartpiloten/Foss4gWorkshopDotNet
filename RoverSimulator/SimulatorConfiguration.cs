@@ -10,8 +10,8 @@ namespace RoverSimulator;
 public static class SimulatorConfiguration
 {
     // Database configuration
-    //public const string DEFAULT_DATABASE_TYPE = "geopackage";
-    public const string DEFAULT_DATABASE_TYPE = "postgres";
+    public const string DEFAULT_DATABASE_TYPE = "geopackage";
+    //public const string DEFAULT_DATABASE_TYPE = "postgres";
 
     //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
     //   public const string POSTGRES_CONNECTION_STRING = "Host=localhost;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData";
