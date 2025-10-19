@@ -287,8 +287,8 @@ public class GeoPackageUpdater : IDisposable
         if (_disposed || _geoPackage == null || _unifiedLayer == null)
             return;
 
-        // Use async lock equivalent
-        await Task.Run(async () =>
+        // Use task-based approach to avoid blocking
+        await Task.Run(() =>
         {
             lock (_updateLock)
             {

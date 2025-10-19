@@ -115,7 +115,7 @@ VALUES (@session_id, @sequence, @recorded_at, @latitude, @longitude, @wind_direc
             Console.WriteLine("Resetting PostgreSQL database...");
             
             var csb = new NpgsqlConnectionStringBuilder(_connectionString);
-            var targetDb = csb.Database;
+            var targetDb = csb.Database ?? throw new InvalidOperationException("Database name must be specified in connection string");
             var adminCsb = new NpgsqlConnectionStringBuilder(_connectionString)
             {
                 Database = "postgres"

@@ -138,6 +138,12 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         var windDirection = short.Parse(feature.Attributes["wind_direction_deg"] ?? "0", CultureInfo.InvariantCulture);
         var windSpeed = float.Parse(feature.Attributes["wind_speed_mps"] ?? "0", CultureInfo.InvariantCulture);
 
+        if (feature.Geometry == null)
+            throw new InvalidDataException("Feature missing geometry");
+
+        if (feature.Geometry is not Point point)
+            throw new InvalidDataException("Feature geometry is not a Point");
+
         return new RoverMeasurement(
             sessionId,
             sequence,
@@ -146,7 +152,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
             longitude,
             windDirection,
             windSpeed,
-            (Point)feature.Geometry
+            point
         );
     }
 

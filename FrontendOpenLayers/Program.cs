@@ -344,7 +344,7 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
 });
 
 // Combined coverage area (the only scent visualization we need)
-app.MapGet("/api/combined-coverage", async (ScentPolygonService scentService) =>
+app.MapGet("/api/combined-coverage", (ScentPolygonService scentService) =>
 {
     try
     {
