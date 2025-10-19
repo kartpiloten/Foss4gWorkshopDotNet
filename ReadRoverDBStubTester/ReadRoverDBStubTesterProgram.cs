@@ -1,11 +1,20 @@
+using Microsoft.Extensions.Configuration;
 using ReadRoverDBStubLibrary;
+
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables()
+    .Build();
+
+TesterConfiguration.Initialize(configuration);
 
 // ===== MAIN PROGRAM =====
 
 Console.WriteLine("========================================");
 Console.WriteLine("       ROVER DATA READER TESTER");
 Console.WriteLine("========================================");
-Console.WriteLine($"Database type preference: {TesterConfiguration.DEFAULT_DATABASE_TYPE.ToUpper()}");
+Console.WriteLine($"Database type preference: {TesterConfiguration.DefaultDatabaseType.ToUpper()}");
 Console.WriteLine("Press Ctrl+C to stop monitoring...");
 Console.WriteLine();
 
@@ -62,7 +71,7 @@ try
             Console.WriteLine();
             Console.WriteLine("DATABASE CONFIGURATION OPTIONS:");
             Console.WriteLine("1. Fix the PostgreSQL connection issue above");
-            Console.WriteLine("2. Change DEFAULT_DATABASE_TYPE to \"geopackage\" in TesterConfiguration");
+            Console.WriteLine("2. Update DatabaseConfiguration:DatabaseType to \"geopackage\" in appsettings.json");
             Console.WriteLine("3. Run RoverSimulator first to create the database schema");
             Console.WriteLine($"{new string('=', 60)}");
             
@@ -96,7 +105,7 @@ try
     using var monitor = new RoverDataMonitor(
         dataReader, 
         pollIntervalMs: ReaderDefaults.DEFAULT_POLL_INTERVAL_MS,
-        statusIntervalMs: TesterConfiguration.DISPLAY_UPDATE_INTERVAL_MS
+        statusIntervalMs: TesterConfiguration.DisplayUpdateIntervalMs
     );
     
     // Subscribe to events for console output
@@ -178,7 +187,7 @@ catch (Exception ex)
         Console.WriteLine("2. Check file permissions");
         Console.WriteLine("3. Ensure the file is not locked by another application");
         Console.WriteLine();
-        Console.WriteLine("Quick fix: Change DEFAULT_DATABASE_TYPE in TesterConfiguration");
+        Console.WriteLine("Quick fix: Change DatabaseConfiguration:DatabaseType in appsettings.json");
     }
 }
 finally
@@ -197,32 +206,44 @@ Console.WriteLine("\nRover data reader tester stopped.");
 /// </summary>
 public static class TesterConfiguration
 {
-    // Database configuration - application-specific settings
-    public const string DEFAULT_DATABASE_TYPE = "postgres"; // Match RoverSimulator default
-    
-    // PostgreSQL configuration - should match RoverSimulator settings
-    public const string POSTGRES_CONNECTION_STRING = "Host=192.168.1.254;Port=5432;Username=anders;Password=tua123;Database=AucklandRoverData;Timeout=10;Command Timeout=30";
-    
-    public const string GEOPACKAGE_FOLDER_PATH = @"C:\temp\Rover1\";
+    private static IConfiguration? _configuration;
 
-    // Application-specific display settings
-    public const int DISPLAY_UPDATE_INTERVAL_MS = 2000; // Update display every 2 seconds
+    public static void Initialize(IConfiguration configuration)
+    {
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    }
+
+    private static IConfiguration Configuration =>
+        _configuration ?? throw new InvalidOperationException("TesterConfiguration.Initialize must be called before accessing configuration values.");
+
+    public static string DefaultDatabaseType =>
+        Configuration.GetValue<string>("DatabaseConfiguration:DatabaseType") ?? "geopackage";
+
+    public static string GeoPackageFolderPath =>
+        Configuration.GetValue<string>("DatabaseConfiguration:GeoPackageFolderPath") ?? "/tmp/Rover1/";
+
+    public static int DisplayUpdateIntervalMs =>
+        Configuration.GetValue<int?>("Tester:DisplayUpdateIntervalMs") ?? 2000;
+
+    private static string PostgresConnectionString =>
+        Configuration.GetValue<string>("DatabaseConfiguration:PostgresConnectionString") ?? string.Empty;
 
     /// <summary>
     /// Creates database configuration object
     /// </summary>
     public static DatabaseConfiguration CreateDatabaseConfig(string? databaseType = null)
     {
-        var dbType = databaseType ?? DEFAULT_DATABASE_TYPE;
-        
+        var section = Configuration.GetSection("DatabaseConfiguration");
+        var dbType = databaseType ?? section.GetValue<string>("DatabaseType") ?? "geopackage";
+
         return new DatabaseConfiguration
         {
             DatabaseType = dbType,
-            PostgresConnectionString = POSTGRES_CONNECTION_STRING,
-            GeoPackageFolderPath = GEOPACKAGE_FOLDER_PATH,
-            ConnectionTimeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-            MaxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
-            RetryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+            PostgresConnectionString = PostgresConnectionString,
+            GeoPackageFolderPath = GeoPackageFolderPath,
+            ConnectionTimeoutSeconds = section.GetValue<int?>("ConnectionTimeoutSeconds") ?? ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+            MaxRetryAttempts = section.GetValue<int?>("MaxRetryAttempts") ?? ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
+            RetryDelayMs = section.GetValue<int?>("RetryDelayMs") ?? ReaderDefaults.DEFAULT_RETRY_DELAY_MS
         };
     }
 
@@ -233,28 +254,36 @@ public static class TesterConfiguration
     {
         try
         {
-            var connectionString = POSTGRES_CONNECTION_STRING;
+            var connectionString = PostgresConnectionString;
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                return "PostgreSQL";
+            }
+
             var parts = new List<string>();
-            
+
             if (connectionString.Contains("Host="))
             {
                 var host = ExtractConnectionStringValue(connectionString, "Host");
                 var port = ExtractConnectionStringValue(connectionString, "Port") ?? "5432";
-                parts.Add($"{host}:{port}");
+                if (!string.IsNullOrEmpty(host))
+                {
+                    parts.Add($"{host}:{port}");
+                }
             }
-            
+
             var database = ExtractConnectionStringValue(connectionString, "Database");
             if (!string.IsNullOrEmpty(database))
             {
                 parts.Add($"Database: {database}");
             }
-            
+
             var username = ExtractConnectionStringValue(connectionString, "Username");
             if (!string.IsNullOrEmpty(username))
             {
                 parts.Add($"User: {username}");
             }
-            
+
             return parts.Any() ? string.Join(", ", parts) : "PostgreSQL";
         }
         catch

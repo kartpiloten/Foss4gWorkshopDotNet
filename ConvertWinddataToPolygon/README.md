@@ -18,9 +18,9 @@ Each polygon represents a **comprehensive scent detection zone** combining two k
 ### 2. Upwind Enhanced Detection (Wind-Dependent Fan)
 - **Fan-shaped extension** from dog's nose expanding upwind
 - **Wind speed affects both distance and angle**:
-  - Light wind (< 2 m/s): 50-80m range, wide ±30° dispersion
+  - Light wind (< 2 m/s): 50-80m range, wide Â±30Â° dispersion
   - Moderate wind (2-5 m/s): 80-125m range, optimal conditions  
-  - Strong wind (5-8 m/s): 125-155m range, narrower ±10-16° cone
+  - Strong wind (5-8 m/s): 125-155m range, narrower Â±10-16Â° cone
   - Very strong wind (> 8 m/s): Reduced range due to dilution
 
 ### Combined Detection Zone
@@ -36,7 +36,7 @@ The wind polygon GeoPackage contains the following attributes:
 - `session_id`: Rover session identifier
 - `sequence`: Measurement sequence number
 - `recorded_at`: Timestamp of measurement
-- `wind_direction_deg`: Wind direction in degrees (0° = North)
+- `wind_direction_deg`: Wind direction in degrees (0Â° = North)
 - `wind_speed_mps`: Wind speed in meters per second
 - `scent_area_m2`: Total scent detection area in square meters
 - `max_distance_m`: Maximum scent detection distance in meters
@@ -48,9 +48,9 @@ dotnet run
 ```
 
 The program will:
-1. Read rover measurements from `C:\temp\Rover1\rover_data.gpkg`
+1. Read rover measurements from the path configured via `Converter:GeoPackageFilePath` (defaults to `/tmp/rover_data.gpkg`)
 2. Generate comprehensive scent polygons for each measurement
-3. Save results to `C:\temp\Rover1\rover_windpolygon.gpkg`
+3. Save results to the folder specified by `Converter:OutputFolderPath` (defaults to `/tmp/`)
 4. Export alternative GeoJSON format for web compatibility
 
 ## Visualization
