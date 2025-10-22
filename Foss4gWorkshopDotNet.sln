@@ -9,6 +9,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoverSimulator", "RoverSimu
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solutionresources", "Solutionresources", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 	ProjectSection(SolutionItems) = preProject
+		copilot-instructions.md = copilot-instructions.md
 		Solutionresources\RiverHeadForest.gpkg = Solutionresources\RiverHeadForest.gpkg
 	EndProjectSection
 EndProject
@@ -23,6 +24,11 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FrontendOpenLayers", "FrontendOpenLayers\FrontendOpenLayers.csproj", "{BF372540-749B-60D2-A2C9-182F2B62123C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FrontendLeaflet", "FrontendLeaflet\FrontendLeaflet.csproj", "{EE517AEA-3171-E42C-8AF0-8E8ED95CD7B0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".github", ".github", "{025ACB7F-73A3-4D42-BD53-7C7812EA5DEC}"
+	ProjectSection(SolutionItems) = preProject
+		copilot-instructions.md = copilot-instructions.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

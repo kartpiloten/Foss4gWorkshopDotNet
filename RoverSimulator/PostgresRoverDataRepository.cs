@@ -1,6 +1,12 @@
-using NetTopologySuite.Geometries;
-using Npgsql;
-using NpgsqlTypes;
+/*
+ The functionallity in this file is:
+ - Implement a PostgreSQL/PostGIS-backed repository using Npgsql and NetTopologySuite (geometry mapping).
+ - Create/reset schema and insert measurements efficiently using a prepared command.
+ - Keep initialization and error messages concise for workshop use.
+*/
+
+using Npgsql; // ADO.NET provider for PostgreSQL
+using NpgsqlTypes; // Npgsql type mappings (includes Geometry with NTS)
 
 namespace RoverSimulator;
 
@@ -20,9 +26,8 @@ public class PostgresRoverDataRepository : RoverDataRepositoryBase
         {
             Console.WriteLine("Initializing PostgreSQL connection...");
             
-            // Build an Npgsql data source with NetTopologySuite enabled for PostGIS geometry mapping
             _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
-                .UseNetTopologySuite()
+                .UseNetTopologySuite() // Enable PostGIS <-> NTS (NetTopologySuite) geometry mapping
                 .Build();
             
             Console.WriteLine("Opening database connection...");
@@ -30,7 +35,6 @@ public class PostgresRoverDataRepository : RoverDataRepositoryBase
 
             Console.WriteLine("Setting up database schema...");
             
-            // Ensure PostGIS, schema and table/columns exist
             const string createSql = @"
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -188,7 +192,7 @@ VALUES (@session_id, @sequence, @recorded_at, @latitude, @longitude, @wind_direc
             _insertCommand.Parameters["@longitude"].Value = measurement.Longitude;
             _insertCommand.Parameters["@wind_direction_deg"].Value = measurement.WindDirectionDeg;
             _insertCommand.Parameters["@wind_speed_mps"].Value = measurement.WindSpeedMps;
-            _insertCommand.Parameters["@geom"].Value = measurement.Geometry;
+            _insertCommand.Parameters["@geom"].Value = measurement.Geometry; // NTS -> PostGIS via Npgsql
 
             await _insertCommand.ExecuteNonQueryAsync(cancellationToken);
         }

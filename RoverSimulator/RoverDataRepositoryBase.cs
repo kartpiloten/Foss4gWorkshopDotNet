@@ -1,3 +1,10 @@
+/*
+ The functionallity in this file is:
+ - Provide an abstract base for repositories with a shared connection string and dispose pattern.
+ - Ensure all implementations support async Initialize/Reset/Insert operations.
+ - Keep the base minimal to focus on learning the concrete providers.
+*/
+
 using NetTopologySuite.Geometries;
 
 namespace RoverSimulator;
@@ -22,7 +29,7 @@ public abstract class RoverDataRepositoryBase : IRoverDataRepository
         {
             if (disposing)
             {
-                // Dispose managed resources
+                // Dispose managed resources (if any in derived types)
             }
             _disposed = true;
         }

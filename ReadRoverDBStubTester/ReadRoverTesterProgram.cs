@@ -1,4 +1,5 @@
 using ReadRoverDBStubLibrary;
+// This project uses top-level statements (C# feature) to keep the sample minimal.
 
 /// <summary>
 /// Simple test to verify that GetLatestMeasurementAsync returns fresh data from GeoPackage
@@ -19,10 +20,12 @@ var config = new DatabaseConfiguration
     DatabaseType = "geopackage",
     GeoPackageFolderPath = @"C:\temp\Rover1\"
 };
+// GeoPackage is an OGC FOSS4G standard for storing spatial data in a SQLite file.
 
 using var reader = RoverDataReaderFactory.CreateReader(config);
 
 Console.WriteLine("Initializing reader...");
+// Async initialization (async/await avoids blocking the main thread)
 await reader.InitializeAsync();
 
 Console.WriteLine("Reader initialized successfully!");
@@ -35,6 +38,7 @@ Console.WriteLine($"Total measurements in database: {totalCount}");
 
 if (totalCount > 0)
 {
+    // LINQ is used here to project and take subsets of the sequence list
     var allMeasurements = await reader.GetAllMeasurementsAsync();
     Console.WriteLine($"First 5 sequences: {string.Join(", ", allMeasurements.Take(5).Select(m => m.Sequence))}");
     Console.WriteLine($"Last 5 sequences: {string.Join(", ", allMeasurements.TakeLast(5).Select(m => m.Sequence))}");
@@ -55,6 +59,7 @@ while (true)
 {
     try
     {
+        // Get the most recent measurement asynchronously (async/await)
         var latest = await reader.GetLatestMeasurementAsync();
         
         if (latest != null)
@@ -78,10 +83,11 @@ while (true)
             Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff,-12} NO DATA");
         }
         
-        await Task.Delay(2000); // Wait 2 seconds
+        await Task.Delay(2000); // Asynchronously wait 2 seconds between polls
     }
     catch (Exception ex)
     {
+        // Keep error handling minimal to avoid noise while still surfacing issues
         Console.WriteLine($"ERROR: {ex.Message}");
         await Task.Delay(2000);
     }

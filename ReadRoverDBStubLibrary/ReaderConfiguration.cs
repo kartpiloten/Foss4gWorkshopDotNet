@@ -1,40 +1,61 @@
+/*
+ The functionallity in this file is:
+ - Provide simple defaults and configuration types for choosing a data reader backend.
+ - Offer a minimal Postgres connectivity test and factory helpers (validated and legacy create).
+ - Keep the library silent and focused on the essentials for workshop scenarios.
+*/
+
 namespace ReadRoverDBStubLibrary;
 
 /// <summary>
-/// Configuration constants for the rover data reader library (defaults only)
+/// Library-level defaults used by readers and factories (kept minimal for workshop).
 /// </summary>
 public static class ReaderDefaults
 {
-    // Connection validation settings - reasonable defaults
+    // Connection validation defaults
     public const int DEFAULT_CONNECTION_TIMEOUT_SECONDS = 10;
     public const int DEFAULT_MAX_RETRY_ATTEMPTS = 3;
     public const int DEFAULT_RETRY_DELAY_MS = 2000;
 
-    // Monitoring settings - reasonable defaults
+    // Monitoring defaults (used by consuming apps)
     public const int DEFAULT_POLL_INTERVAL_MS = 1000;
     public const int DEFAULT_STATUS_INTERVAL_MS = 2000;
 }
 
 /// <summary>
-/// Configuration for database connections (provided by consuming application)
+/// Configuration for selecting and initializing a data reader.
+/// Notes:
+/// - DatabaseType: "postgres" (PostgreSQL/PostGIS) or "geopackage" (OGC GeoPackage).
+/// - Async methods use CancellationToken (async/await) to support cooperative cancellation.
 /// </summary>
 public class DatabaseConfiguration
 {
+    // "postgres" (PostGIS) or "geopackage" (OGC GeoPackage on SQLite)
     public string DatabaseType { get; init; } = "geopackage";
+
+    // Used when DatabaseType == "postgres" (Npgsql + NetTopologySuite in the reader)
     public string? PostgresConnectionString { get; init; }
+
+    // Used when DatabaseType == "geopackage" (MapPiloteGeopackageHelper + NTS in the reader)
     public string? GeoPackageFolderPath { get; init; }
+
+    // Connection test settings (simple retry pattern)
     public int ConnectionTimeoutSeconds { get; init; } = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS;
     public int MaxRetryAttempts { get; init; } = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS;
     public int RetryDelayMs { get; init; } = ReaderDefaults.DEFAULT_RETRY_DELAY_MS;
 }
 
 /// <summary>
-/// Factory for creating rover data readers (silent library version)
+/// Factory for creating rover data readers.
+/// Notes:
+/// - Keep logging minimal (library is silent).
+/// - Validation method provides a basic connectivity check for Postgres.
 /// </summary>
 public static class RoverDataReaderFactory
 {
     /// <summary>
-    /// Tests PostgreSQL database connectivity with timeout and retry logic (silent)
+    /// Tests PostgreSQL connectivity with a simple timeout + retry loop.
+    /// Uses async/await and CancellationToken to avoid blocking.
     /// </summary>
     public static async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(
         string connectionString, 
@@ -48,17 +69,13 @@ public static class RoverDataReaderFactory
             try
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-                
-                // Create test reader to validate connection
+                cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds)); // cancel if the attempt takes too long
+
+                // Create a reader and perform a simple read to validate connectivity
                 using var testReader = new PostgresRoverDataReader(connectionString);
-                
-                // Try to initialize and access data
                 await testReader.InitializeAsync(cts.Token);
-                
-                // Test basic read operation
                 await testReader.GetMeasurementCountAsync(cts.Token);
-                
+
                 return (true, string.Empty);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -74,7 +91,7 @@ public static class RoverDataReaderFactory
             }
             catch (Exception ex)
             {
-                // For specific error types, don't retry
+                // Keep check simple: message-based short-circuit for common fatal issues
                 if (ex.Message.Contains("authentication failed") || 
                     ex.Message.Contains("database") && ex.Message.Contains("does not exist") ||
                     ex.Message.Contains("permission denied") ||
@@ -92,7 +109,7 @@ public static class RoverDataReaderFactory
             
             if (attempt < maxRetryAttempts)
             {
-                await Task.Delay(retryDelayMs, cancellationToken);
+                await Task.Delay(retryDelayMs, cancellationToken); // brief pause between attempts
             }
         }
         
@@ -100,7 +117,8 @@ public static class RoverDataReaderFactory
     }
 
     /// <summary>
-    /// Creates the appropriate data reader with connection validation (silent - no automatic fallback)
+    /// Creates a data reader with prior connection validation for Postgres.
+    /// Throws with a concise message if validation fails (kept minimal).
     /// </summary>
     public static async Task<IRoverDataReader> CreateReaderWithValidationAsync(
         DatabaseConfiguration config, 
@@ -145,7 +163,8 @@ public static class RoverDataReaderFactory
     }
 
     /// <summary>
-    /// Creates the appropriate data reader based on configuration (silent - legacy method)
+    /// Creates a data reader without validation (legacy path).
+    /// Useful when the app wants to control validation separately.
     /// </summary>
     public static IRoverDataReader CreateReader(DatabaseConfiguration config)
     {
@@ -153,8 +172,10 @@ public static class RoverDataReaderFactory
         {
             "postgres" when !string.IsNullOrEmpty(config.PostgresConnectionString) 
                 => new PostgresRoverDataReader(config.PostgresConnectionString),
+
             "geopackage" when !string.IsNullOrEmpty(config.GeoPackageFolderPath)
                 => new GeoPackageRoverDataReader(config.GeoPackageFolderPath),
+
             "postgres" => throw new ArgumentException("PostgreSQL connection string is required when database type is 'postgres'"),
             "geopackage" => throw new ArgumentException("GeoPackage folder path is required when database type is 'geopackage'"),
             _ => throw new ArgumentException($"Unsupported database type: {config.DatabaseType}. Use 'postgres' or 'geopackage'.")

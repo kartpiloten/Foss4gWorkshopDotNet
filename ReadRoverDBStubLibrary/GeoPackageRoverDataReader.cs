@@ -1,11 +1,21 @@
-using MapPiloteGeopackageHelper;
-using NetTopologySuite.Geometries;
-using System.Globalization;
+/*
+ The functionallity in this file is:
+ - Implement a GeoPackage reader using MapPiloteGeopackageHelper and NetTopologySuite (NTS Point geometry).
+ - Provide async read operations (count, list, new since seq, latest) while opening/disposing per operation.
+ - Keep the sample simple and silent; suitable for FOSS4G workflows (OGC GeoPackage, EPSG:4326/WGS84).
+*/
+
+using MapPiloteGeopackageHelper; // NuGet: helpers for reading/writing OGC GeoPackage with async APIs
+using NetTopologySuite.Geometries; // NuGet: NetTopologySuite geometry types (e.g., Point) used by FOSS4G tools
+using System.Globalization; // For culture-invariant numeric/date parsing
 
 namespace ReadRoverDBStubLibrary;
 
 /// <summary>
-/// GeoPackage rover data reader (silent library version)
+/// GeoPackage rover data reader (silent library version).
+/// Notes:
+/// - GeoPackage is an OGC FOSS4G standard (SQLite-based) commonly used for spatial data exchange.
+/// - Uses async/await to avoid blocking; opens the file per operation to keep the sample simple.
 /// </summary>
 public class GeoPackageRoverDataReader : RoverDataReaderBase
 {
@@ -43,7 +53,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
             throw new FileNotFoundException($"GeoPackage file not found: {_dbPath}");
         }
         
-        // Just verify the file exists, don't keep it open
+        // Just verify the file exists; do not keep it open (keeps the sample minimal)
         return Task.CompletedTask;
     }
 
@@ -52,7 +62,9 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         if (string.IsNullOrEmpty(_dbPath))
             throw new InvalidOperationException("Database path not specified");
 
+        // EPSG:4326 (WGS84) is the common coordinate reference system used by FOSS4G tools
         var geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
+        // Ensure the layer reference (creates if missing) to keep the workshop flow smooth
         var layer = await geoPackage.EnsureLayerAsync(LayerName, new Dictionary<string, string>(), 4326);
         return (geoPackage, layer);
     }
@@ -66,7 +78,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
         finally
         {
-            geoPackage.Dispose();
+            geoPackage.Dispose(); // Dispose after each operation to avoid keeping the file locked
         }
     }
 
@@ -77,12 +89,13 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         {
             var readOptions = new ReadOptions(
                 IncludeGeometry: true,
-                WhereClause: whereClause,
+                WhereClause: whereClause, // For simplicity, raw where clause is passed through
                 OrderBy: "sequence ASC"
             );
 
             var measurements = new List<RoverMeasurement>();
 
+            // await foreach consumes IAsyncEnumerable from the GeoPackage layer (async stream)
             await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
             {
                 measurements.Add(ConvertToRoverMeasurement(feature));
@@ -148,6 +161,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
 
     private static RoverMeasurement ConvertToRoverMeasurement(FeatureRecord feature)
     {
+        // Attributes are strings; parse using InvariantCulture for consistent numeric formats
         var sessionId = Guid.Parse(feature.Attributes["session_id"] ?? throw new InvalidDataException("Missing session_id"));
         var sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture);
         var recordedAt = DateTimeOffset.Parse(feature.Attributes["recorded_at"] ?? throw new InvalidDataException("Missing recorded_at"));
@@ -160,7 +174,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
             throw new InvalidDataException("Feature missing geometry");
 
         if (feature.Geometry is not Point point)
-            throw new InvalidDataException("Feature geometry is not a Point");
+            throw new InvalidDataException("Feature geometry is not a Point"); // NTS Point required
 
         return new RoverMeasurement(
             sessionId,
@@ -180,7 +194,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         {
             if (disposing)
             {
-                // No resources to dispose anymore since we open/close on each operation
+                // Nothing to dispose: GeoPackage is opened/closed per operation to keep sample simple
             }
             base.Dispose(disposing);
         }

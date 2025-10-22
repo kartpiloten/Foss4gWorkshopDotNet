@@ -1,16 +1,26 @@
-using NetTopologySuite.Geometries;
-using Npgsql;
-using System.Data;
+/*
+ The functionallity in this file is:
+ - Implement a PostgreSQL/PostGIS data reader using Npgsql and NetTopologySuite (geom -> NTS Point).
+ - Provide async read operations (count, list, new since seq, latest) with minimal error translation.
+ - Keep the sample simple and silent: no extra logging; dispose ADO.NET resources properly.
+*/
+
+using NetTopologySuite.Geometries; // NuGet: NetTopologySuite for GIS geometry types (maps PostGIS geometries)
+using Npgsql; // NuGet: Npgsql is the ADO.NET provider for PostgreSQL (supports PostGIS via NTS)
+using System.Data; // ADO.NET primitives (IDbConnection, ConnectionState)
 
 namespace ReadRoverDBStubLibrary;
 
 /// <summary>
-/// PostgreSQL rover data reader (silent library version)
+/// PostgreSQL rover data reader (silent library version).
+/// Notes:
+/// - Uses Npgsql with NetTopologySuite to read PostGIS geometry (geom -> Point).
+/// - Async/await with CancellationToken to avoid blocking and allow cooperative cancellation.
 /// </summary>
 public class PostgresRoverDataReader : RoverDataReaderBase
 {
-    private NpgsqlDataSource? _dataSource;
-    private NpgsqlConnection? _connection;
+    private NpgsqlDataSource? _dataSource; // ADO.NET data source (manages connection pooling)
+    private NpgsqlConnection? _connection; // ADO.NET connection instance (opened on demand)
 
     public PostgresRoverDataReader(string connectionString) : base(connectionString)
     {
@@ -18,6 +28,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        // Async initialization (async/await) to avoid blocking the calling thread
         await CreateAndOpenConnectionAsync(cancellationToken);
     }
 
@@ -33,17 +44,24 @@ public class PostgresRoverDataReader : RoverDataReaderBase
     {
         try
         {
+            // Recreate data source/connection to ensure clean state
             _dataSource?.Dispose();
             _connection?.Dispose();
+
+            // UseNetTopologySuite registers PostGIS type handlers so 'geom' maps to NTS Point (FOSS4G: PostGIS)
             _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
                 .UseNetTopologySuite()
                 .Build();
+
+            // Open physical connection (ADO.NET)
             _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-            // Test if the table exists and is accessible
+
+            // Quick sanity check: verify table access (schema-qualified)
             const string testSql = @"SELECT COUNT(*) FROM roverdata.rover_measurements LIMIT 1;";
             await using var testCmd = new NpgsqlCommand(testSql, _connection);
             await testCmd.ExecuteScalarAsync(cancellationToken);
         }
+        // Keep exception translation minimal; just enough for clear troubleshooting in a workshop
         catch (OperationCanceledException)
         {
             throw;
@@ -98,6 +116,8 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 FROM roverdata.rover_measurements";
             if (!string.IsNullOrWhiteSpace(whereClause))
             {
+                // For demo simplicity, whereClause is appended directly.
+                // In production, prefer parameterized queries to avoid SQL injection.
                 sql += $" WHERE {whereClause}";
             }
             sql += " ORDER BY sequence ASC;";
@@ -133,7 +153,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 WHERE sequence > @lastSequence
                 ORDER BY sequence ASC;";
             await using var cmd = new NpgsqlCommand(sql, _connection);
-            cmd.Parameters.AddWithValue("@lastSequence", lastSequence);
+            cmd.Parameters.AddWithValue("@lastSequence", lastSequence); // Parameterized query (ADO.NET)
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             var measurements = new List<RoverMeasurement>();
             while (await reader.ReadAsync(cancellationToken))
@@ -185,16 +205,16 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     private static RoverMeasurement ConvertToRoverMeasurement(NpgsqlDataReader reader)
     {
-        // Use ordinal-based column access - columns are in this order from our SELECT:
-        // session_id, sequence, recorded_at, latitude, longitude, wind_direction_deg, wind_speed_mps, geom
+        // Ordinal-based access is efficient; order matches SELECT list.
+        // NetTopologySuite Point mapping requires Npgsql UseNetTopologySuite (PostGIS <-> NTS).
         var sessionId = reader.GetFieldValue<Guid>(0);      // session_id
-        var sequence = reader.GetFieldValue<int>(1);        // sequence  
+        var sequence = reader.GetFieldValue<int>(1);        // sequence
         var recordedAt = reader.GetFieldValue<DateTimeOffset>(2);  // recorded_at
         var latitude = reader.GetFieldValue<double>(3);     // latitude
         var longitude = reader.GetFieldValue<double>(4);    // longitude
         var windDirection = reader.GetFieldValue<short>(5); // wind_direction_deg
         var windSpeed = reader.GetFieldValue<float>(6);     // wind_speed_mps
-        var geometry = reader.GetFieldValue<Point>(7);      // geom
+        var geometry = reader.GetFieldValue<Point>(7);      // geom (PostGIS geometry -> NTS Point)
 
         return new RoverMeasurement(
             sessionId,
@@ -210,17 +230,10 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     private void CleanupConnection()
     {
-        try
-        {
-            _connection?.Dispose();
-        }
-        catch { }
+        // Minimal cleanup to keep sample simple
+        try { _connection?.Dispose(); } catch { }
         _connection = null;
-        try
-        {
-            _dataSource?.Dispose();
-        }
-        catch { }
+        try { _dataSource?.Dispose(); } catch { }
         _dataSource = null;
     }
 
@@ -230,6 +243,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         {
             if (disposing)
             {
+                // Dispose managed resources (ADO.NET). Keep it silent (no logging).
                 try
                 {
                     _connection?.Dispose();
@@ -237,7 +251,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
                 }
                 catch (Exception)
                 {
-                    // Silent disposal - no console output
+                    // Intentionally silent per workshop guidelines
                 }
             }
             base.Dispose(disposing);

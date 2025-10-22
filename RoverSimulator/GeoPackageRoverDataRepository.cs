@@ -1,7 +1,14 @@
-using MapPiloteGeopackageHelper;
-using NetTopologySuite.Geometries;
-using System.Globalization;
-using System.Diagnostics;
+/*
+ The functionallity in this file is:
+ - Implement a simple GeoPackage-backed repository using MapPiloteGeopackageHelper (OGC standard, SQLite-based).
+ - Create/reset the file, insert features, and provide helpers to detect file locks from other apps (QGIS, etc.).
+ - Use async/await and culture-invariant formatting where needed; keep console guidance minimal.
+*/
+
+using MapPiloteGeopackageHelper; // NuGet helper for GeoPackage (async APIs)
+using NetTopologySuite.Geometries; // NTS geometry types (Point) for FOSS4G interoperability
+using System.Globalization; // InvariantCulture for numeric formatting
+using System.Diagnostics; // Process inspection for lock hints
 
 namespace RoverSimulator;
 
@@ -29,7 +36,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
     }
 
     /// <summary>
-    /// Checks if the GeoPackage file is currently locked by another process
+    /// Checks if the GeoPackage file is currently locked by another process.
     /// </summary>
     public bool IsFileLocked()
     {
@@ -52,7 +59,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
     }
 
     /// <summary>
-    /// Gets information about which processes might be locking the file
+    /// Gets information about which processes might be locking the file (best-effort).
     /// </summary>
     public List<string> GetLockingProcesses()
     {
@@ -63,14 +70,12 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
         try
         {
-            // Look for processes that might be using the file
             var processes = Process.GetProcesses();
             
             foreach (var process in processes)
             {
                 try
                 {
-                    // Check for common GIS applications
                     var processName = process.ProcessName.ToLower();
                     if (processName.Contains("qgis") || 
                         processName.Contains("arcgis") || 
@@ -96,7 +101,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
     }
 
     /// <summary>
-    /// Attempts to force unlock the file by waiting and retrying
+    /// Attempts to force unlock the file by waiting and retrying.
     /// </summary>
     public async Task<bool> TryForceUnlockAsync(int maxAttempts = 5, int delayMs = 1000)
     {
@@ -113,7 +118,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
     }
 
     /// <summary>
-    /// Checks and reports the file lock status to the user
+    /// Checks and reports the file lock status to the user.
     /// </summary>
     public void CheckFileLockStatus()
     {
@@ -159,7 +164,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
         try
         {
-            // Ensure the target directory exists
             if (!Directory.Exists(_folderPath))
             {
                 Directory.CreateDirectory(_folderPath);
@@ -168,10 +172,8 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
             Console.WriteLine($"Creating GeoPackage: {_dbPath}");
             
-            // Use MapPiloteGeopackageHelper to create/open the GeoPackage with WGS84 (4326)
-            _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
+            _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326); // WGS84 CRS
 
-            // Define schema for rover measurements
             var measurementSchema = new Dictionary<string, string>
             {
                 ["session_id"] = "TEXT NOT NULL",
@@ -183,7 +185,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                 ["wind_speed_mps"] = "REAL NOT NULL"
             };
 
-            // Ensure the rover_measurements layer exists
             Console.WriteLine($"Creating layer '{LayerName}'...");
             _measurementsLayer = await _geoPackage.EnsureLayerAsync(LayerName, measurementSchema, 4326);
 
@@ -203,20 +204,16 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
         if (string.IsNullOrEmpty(_dbPath))
             return;
 
-        // Close existing GeoPackage if open
         _geoPackage?.Dispose();
         _geoPackage = null;
         _measurementsLayer = null;
 
-        // Wait a moment for resources to be fully released
         await Task.Delay(100, cancellationToken);
 
-        // Delete the GeoPackage file if it exists
         if (File.Exists(_dbPath))
         {
             try
             {
-                // Try to force unlock before deletion
                 if (IsFileLocked())
                 {
                     Console.WriteLine("File is locked, attempting to wait for unlock...");
@@ -251,14 +248,13 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
         try
         {
-            // Create a FeatureRecord for the measurement
             var featureRecord = new FeatureRecord(
                 measurement.Geometry,
                 new Dictionary<string, string?>(StringComparer.Ordinal)
                 {
                     ["session_id"] = measurement.SessionId.ToString(),
                     ["sequence"] = measurement.Sequence.ToString(CultureInfo.InvariantCulture),
-                    ["recorded_at"] = measurement.RecordedAt.ToString("O"), // ISO 8601 format
+                    ["recorded_at"] = measurement.RecordedAt.ToString("O"),
                     ["latitude"] = measurement.Latitude.ToString("F8", CultureInfo.InvariantCulture),
                     ["longitude"] = measurement.Longitude.ToString("F8", CultureInfo.InvariantCulture),
                     ["wind_direction_deg"] = measurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
@@ -266,16 +262,15 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                 }
             );
 
-            // Use BulkInsertAsync with a single feature - this is the correct way to insert individual features
             var features = new List<FeatureRecord> { featureRecord };
             await _measurementsLayer.BulkInsertAsync(
                 features,
                 new BulkInsertOptions(
                     BatchSize: 1,
-                    CreateSpatialIndex: false, // Don't create index for single inserts
+                    CreateSpatialIndex: false,
                     ConflictPolicy: ConflictPolicy.Ignore
                 ),
-                null, // No progress reporting for single insert
+                null,
                 cancellationToken);
         }
         catch (Exception ex)
@@ -284,6 +279,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
         }
     }
 
+    // Extra bulk operations for demos
     public async Task BulkInsertMeasurementsAsync(IEnumerable<RoverMeasurement> measurements, IProgress<BulkProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         if (_measurementsLayer == null)
@@ -291,7 +287,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
         try
         {
-            // Convert measurements to FeatureRecords
             var featureRecords = measurements.Select(measurement => new FeatureRecord(
                 measurement.Geometry,
                 new Dictionary<string, string?>(StringComparer.Ordinal)
@@ -306,7 +301,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                 }
             )).ToList();
 
-            // Use bulk insert with proper options
             await _measurementsLayer.BulkInsertAsync(
                 featureRecords,
                 new BulkInsertOptions(
@@ -351,7 +345,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
         await foreach (var feature in _measurementsLayer.ReadFeaturesAsync(readOptions, cancellationToken))
         {
-            // Convert back to RoverMeasurement
             var sessionId = Guid.Parse(feature.Attributes["session_id"] ?? throw new InvalidDataException("Missing session_id"));
             var sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture);
             var recordedAt = DateTimeOffset.Parse(feature.Attributes["recorded_at"] ?? throw new InvalidDataException("Missing recorded_at"));
@@ -406,12 +399,10 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
             {
                 try
                 {
-                    // Properly dispose of resources
                     _measurementsLayer = null;
                     _geoPackage?.Dispose();
                     _geoPackage = null;
                     
-                    // Give a moment for the file handle to be released
                     Thread.Sleep(100);
 
                     if (!string.IsNullOrEmpty(_dbPath) && File.Exists(_dbPath))

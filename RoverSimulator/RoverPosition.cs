@@ -1,9 +1,16 @@
-using NetTopologySuite.Geometries;
+/*
+ The functionallity in this file is:
+ - Represent rover movement and geometry creation, with gentle boundary handling.
+ - Demonstrate simple kinematics and NetTopologySuite Point creation (EPSG:4326).
+ - Keep calculations approximate (sufficient for short steps and workshop demos).
+*/
+
+using NetTopologySuite.Geometries; // NTS Point for geometry output
 
 namespace RoverSimulator;
 
 /// <summary>
-/// Represents a rover's position and movement state
+/// Represents a rover's position and movement state.
 /// </summary>
 public class RoverPosition
 {
@@ -33,21 +40,17 @@ public class RoverPosition
     }
 
     /// <summary>
-    /// Updates the position based on current bearing and step distance
+    /// Update position using a simple local tangent-plane approximation.
     /// </summary>
     public void UpdatePosition(TimeSpan interval)
     {
         StepMeters = WalkSpeedMps * interval.TotalSeconds;
         
-        // Convert bearing to radians
         double bearingRadians = BearingDegrees * Math.PI / 180.0;
-
-        // Decompose into local N/E components
         double dNorth = StepMeters * Math.Cos(bearingRadians);
         double dEast = StepMeters * Math.Sin(bearingRadians);
 
-        // Convert meters to degrees
-        const double metersPerDegLat = 111_320.0; // near NZ; adequate for small steps
+        const double metersPerDegLat = 111_320.0; // rough average for small moves
         double metersPerDegLon = 111_320.0 * Math.Cos(Latitude * Math.PI / 180.0);
 
         Latitude += dNorth / metersPerDegLat;
@@ -55,28 +58,19 @@ public class RoverPosition
     }
 
     /// <summary>
-    /// Updates the bearing with moderate random variation and momentum
+    /// Update bearing with small random variation and momentum.
     /// </summary>
     public void UpdateBearing(Random random, double meanChange = 0, double stdDev = 3)
     {
-        // Moderate standard deviation - not too smooth, not too jumpy
-        double moderateStdDev = stdDev * 0.6; // Reduce by 40% instead of 70%
-        
-        // Add inertia - larger changes are less likely but still possible
+        double moderateStdDev = stdDev * 0.6;
         double bearingChange = NextGaussian(random, meanChange, moderateStdDev);
-        
-        // Less aggressive momentum factor - allow some larger changes
-        if (Math.Abs(bearingChange) > 8.0) // Increased threshold from 5 to 8 degrees
+        if (Math.Abs(bearingChange) > 8.0)
         {
-            bearingChange *= 0.7; // Reduce large changes by 30% instead of 50%
+            bearingChange *= 0.7;
         }
-        
         BearingDegrees = NormalizeDegrees(BearingDegrees + bearingChange);
     }
 
-    /// <summary>
-    /// Checks if the current position is within bounds (using bounding box for performance - FALLBACK ONLY)
-    /// </summary>
     public bool IsInBounds()
     {
         return Latitude >= MinLatitude && Latitude <= MaxLatitude && 
@@ -84,192 +78,68 @@ public class RoverPosition
     }
 
     /// <summary>
-    /// Checks if the current position is within the actual forest boundary polygon using NetTopologySuite Contains
+    /// Checks if current position is inside the given polygon (NTS Contains).
     /// </summary>
-    public async Task<bool> IsInForestBoundaryAsync()
+    public bool IsInForestBoundary(Polygon forestPolygon)
     {
-        try
-        {
-            var forestPolygon = await SimulatorConfiguration.GetForestBoundaryAsync();
-            var currentPoint = new Point(Longitude, Latitude) { SRID = 4326 };
-            
-            // Use NetTopologySuite Contains method for accurate polygon boundary checking
-            return forestPolygon.Contains(currentPoint);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Warning: Polygon boundary check failed: {ex.Message}");
-            // Fallback to bounding box check if polygon check fails
-            return IsInBounds();
-        }
+        var currentPoint = new Point(Longitude, Latitude) { SRID = 4326 };
+        return forestPolygon.Contains(currentPoint);
     }
 
     /// <summary>
-    /// Synchronous version of forest boundary check (loads polygon if needed)
-    /// </summary>
-    public bool IsInForestBoundary()
-    {
-        try
-        {
-            var forestPolygon = SimulatorConfiguration.GetForestBoundaryAsync().GetAwaiter().GetResult();
-            var currentPoint = new Point(Longitude, Latitude) { SRID = 4326 };
-            
-            // Use NetTopologySuite Contains method for accurate polygon boundary checking
-            return forestPolygon.Contains(currentPoint);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Warning: Polygon boundary check failed: {ex.Message}");
-            // Fallback to bounding box check if polygon check fails
-            return IsInBounds();
-        }
-    }
-
-    /// <summary>
-    /// DEPRECATED: Simple bounding box constraint (kept for fallback only)
+    /// DEPRECATED: Simple bounding box constraint (fallback only).
     /// </summary>
     public void ConstrainToBounds()
     {
         if (!IsInBounds())
         {
-            // Reflect bearing (turn around)
+            // Reflect bearing (turn around) and take a small step back inside bounds
             BearingDegrees = NormalizeDegrees(BearingDegrees + 180);
-            
-            // Step back inside bounds
-            UpdatePosition(TimeSpan.FromSeconds(2)); // Use standard interval
-            
-            // Clamp to exact bounds if still outside
+            UpdatePosition(TimeSpan.FromSeconds(2));
             Latitude = Math.Clamp(Latitude, MinLatitude, MaxLatitude);
             Longitude = Math.Clamp(Longitude, MinLongitude, MaxLongitude);
         }
     }
 
     /// <summary>
-    /// Enhanced constraint method that uses the actual forest polygon boundary with NetTopologySuite Contains
+    /// Constrain to polygon boundary with small corrective steps (no large jumps).
     /// </summary>
-    public async Task ConstrainToForestBoundaryAsync()
+    public void ConstrainToForestBoundary(Polygon forestPolygon)
     {
         try
         {
-            if (!await IsInForestBoundaryAsync())
+            if (!IsInForestBoundary(forestPolygon))
             {
                 Console.WriteLine($"Rover outside forest boundary at ({Latitude:F6}, {Longitude:F6}) - reflecting bearing");
-                
-                // Store the position where we went outside
-                double outsideLat = Latitude;
-                double outsideLon = Longitude;
-                
-                // Reflect bearing (turn around) - no jumping, just change direction
-                BearingDegrees = NormalizeDegrees(BearingDegrees + 180);
-                
-                // Take a small step back to get inside the polygon
-                // Use a much smaller step to avoid the 1000m jump
-                const double metersPerDegLat = 111_320.0;
+                double metersPerDegLat = 111_320.0;
                 double metersPerDegLon = 111_320.0 * Math.Cos(Latitude * Math.PI / 180.0);
-                
-                // Take small steps back until we're inside (max 5 meters total)
-                double stepBackMeters = Math.Min(StepMeters, 1.0); // Use 1 meter steps or current step size, whichever is smaller
-                int attempts = 0;
-                
-                while (!await IsInForestBoundaryAsync() && attempts < 5)
-                {
-                    // Convert bearing to radians for the reverse direction
-                    double bearingRadians = BearingDegrees * Math.PI / 180.0;
-                    double dNorth = stepBackMeters * Math.Cos(bearingRadians);
-                    double dEast = stepBackMeters * Math.Sin(bearingRadians);
-                    
-                    Latitude += dNorth / metersPerDegLat;
-                    Longitude += dEast / metersPerDegLon;
-                    attempts++;
-                }
-                
-                // If still outside after small steps, fall back to bounding box constraint
-                if (!await IsInForestBoundaryAsync())
-                {
-                    Console.WriteLine("Warning: Could not return to forest polygon with small steps, using bounding box fallback");
-                    ConstrainToBounds();
-                }
-                else
-                {
-                    Console.WriteLine($"Rover returned to forest boundary at ({Latitude:F6}, {Longitude:F6}) after {attempts} small steps");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error in polygon constraint: {ex.Message}");
-            // If polygon checking fails, use the simpler bounding box method
-            ConstrainToBounds();
-        }
-    }
-
-    /// <summary>
-    /// Synchronous version of polygon-based constraint - FIXED to avoid large jumps
-    /// </summary>
-    public void ConstrainToForestBoundary()
-    {
-        try
-        {
-            if (!IsInForestBoundary())
-            {
-                Console.WriteLine($"Rover outside forest boundary at ({Latitude:F6}, {Longitude:F6}) - reflecting bearing");
-                
-                // Simply reflect the bearing (turn around 180 degrees)
                 BearingDegrees = NormalizeDegrees(BearingDegrees + 180);
-                
-                // Take small corrective steps back into the polygon (avoid the 1000m jump)
-                const double metersPerDegLat = 111_320.0;
-                double metersPerDegLon = 111_320.0 * Math.Cos(Latitude * Math.PI / 180.0);
-                
-                // Use very small correction steps - maximum 1 meter per step
-                double correctionStepMeters = Math.Min(1.0, StepMeters * 0.1); // 1 meter or 10% of current step, whichever is smaller
+                double correctionStepMeters = Math.Min(1.0, StepMeters * 0.1);
                 int attempts = 0;
-                
-                while (!IsInForestBoundary() && attempts < 10)
+                while (!IsInForestBoundary(forestPolygon) && attempts < 10)
                 {
-                    // Convert bearing to radians for the reverse direction
                     double bearingRadians = BearingDegrees * Math.PI / 180.0;
                     double dNorth = correctionStepMeters * Math.Cos(bearingRadians);
                     double dEast = correctionStepMeters * Math.Sin(bearingRadians);
-                    
                     Latitude += dNorth / metersPerDegLat;
                     Longitude += dEast / metersPerDegLon;
                     attempts++;
                 }
-                
-                // If still outside after small corrective steps, just change direction and continue
-                // The rover will naturally move away from the boundary with its new bearing
-                if (!IsInForestBoundary())
+                if (!IsInForestBoundary(forestPolygon))
                 {
                     Console.WriteLine($"Warning: Still outside after {attempts} correction steps, continuing with new bearing");
-                    // Don't use bounding box fallback - just let it continue with the new direction
-                    // The next position update will move it further from the boundary
-                }
-                else
-                {
-                    Console.WriteLine($"Rover returned to forest boundary at ({Latitude:F6}, {Longitude:F6}) after {attempts} correction steps");
                 }
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error in polygon constraint: {ex.Message}");
-            // If polygon checking fails, use the simpler bounding box method
             ConstrainToBounds();
         }
     }
 
-    /// <summary>
-    /// Creates a NetTopologySuite Point geometry from current position
-    /// </summary>
-    public Point ToGeometry()
-    {
-        return new Point(Longitude, Latitude) { SRID = 4326 };
-    }
+    public Point ToGeometry() => new Point(Longitude, Latitude) { SRID = 4326 };
 
-    /// <summary>
-    /// Normalizes degrees to 0-360 range
-    /// </summary>
     private static double NormalizeDegrees(double degrees)
     {
         degrees %= 360.0;
@@ -277,9 +147,6 @@ public class RoverPosition
         return degrees;
     }
 
-    /// <summary>
-    /// Generates a Gaussian random number using Box-Muller transform
-    /// </summary>
     private static double NextGaussian(Random random, double mean, double stdDev)
     {
         double u1 = 1.0 - random.NextDouble();

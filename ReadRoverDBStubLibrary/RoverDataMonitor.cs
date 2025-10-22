@@ -1,9 +1,16 @@
+/*
+ The functionallity in this file is:
+ - Centralize polling and in-memory caching of rover measurements for UI consumers (e.g., Blazor components).
+ - Raise simple events when new data arrives and for periodic status, so UIs can react without tight coupling.
+ - Keep logic minimal: async reads, thread-safe storage, and timers; no extra logging/config noise.
+*/
+
 using System.Collections.Concurrent;
 
 namespace ReadRoverDBStubLibrary;
 
 /// <summary>
-/// Event arguments for rover data updates
+/// Event arguments for rover data updates (POCO payload).
 /// </summary>
 public class RoverDataUpdateEventArgs : EventArgs
 {
@@ -13,7 +20,7 @@ public class RoverDataUpdateEventArgs : EventArgs
 }
 
 /// <summary>
-/// Event arguments for rover data monitor status
+/// Event arguments for rover data monitor status (POCO payload).
 /// </summary>
 public class RoverDataStatusEventArgs : EventArgs
 {
@@ -23,50 +30,59 @@ public class RoverDataStatusEventArgs : EventArgs
 }
 
 /// <summary>
-/// Manages a collection of rover measurements and monitors for updates (silent library version)
+/// Manages a collection of rover measurements and monitors for updates (silent library version).
+/// Notes:
+/// - Uses ConcurrentDictionary for thread-safe updates from timer callbacks.
+/// - System.Threading.Timer callbacks run on ThreadPool, not a UI thread (Blazor consumers should marshal to UI).
 /// </summary>
 public class RoverDataMonitor : IDisposable
 {
     private readonly IRoverDataReader _dataReader;
     private readonly ConcurrentDictionary<int, RoverMeasurement> _measurements;
-    private readonly Timer _pollTimer;
-    private readonly Timer _statusTimer;
+    private readonly Timer _pollTimer;   // Timer-based polling (non-UI thread)
+    private readonly Timer _statusTimer; // Periodic status event
+    private readonly int _pollIntervalMs;
+    private readonly int _statusIntervalMs;
     private bool _disposed;
     private int _lastKnownSequence = -1;
     private RoverMeasurement? _latestMeasurement;
 
     /// <summary>
-    /// Event fired when new data is received
+    /// Event fired when new data is received.
+    /// Blazor note: invoke StateHasChanged via InvokeAsync on the component side.
     /// </summary>
     public event EventHandler<RoverDataUpdateEventArgs>? DataUpdated;
     
     /// <summary>
-    /// Event fired for periodic status updates
+    /// Event fired for periodic status updates.
     /// </summary>
     public event EventHandler<RoverDataStatusEventArgs>? StatusUpdate;
 
     public RoverDataMonitor(IRoverDataReader dataReader, int pollIntervalMs = 1000, int statusIntervalMs = 2000)
     {
         _dataReader = dataReader ?? throw new ArgumentNullException(nameof(dataReader));
-        _measurements = new ConcurrentDictionary<int, RoverMeasurement>();
+        _measurements = new ConcurrentDictionary<int, RoverMeasurement>(); // thread-safe map by Sequence
+        _pollIntervalMs = pollIntervalMs;
+        _statusIntervalMs = statusIntervalMs;
         
-        // Create timers but don't start them yet
-        _pollTimer = new Timer(PollForNewData, null, Timeout.Infinite, pollIntervalMs);
-        _statusTimer = new Timer(FireStatusUpdate, null, Timeout.Infinite, statusIntervalMs);
+        // Create timers but don't start them yet; period is configured, dueTime will be set in StartAsync.
+        _pollTimer = new Timer(PollForNewData, null, Timeout.Infinite, _pollIntervalMs);
+        _statusTimer = new Timer(FireStatusUpdate, null, Timeout.Infinite, _statusIntervalMs);
     }
 
     /// <summary>
-    /// Gets the current count of measurements in the collection
+    /// Gets the current count of measurements in the collection.
     /// </summary>
     public int Count => _measurements.Count;
 
     /// <summary>
-    /// Gets the latest measurement
+    /// Gets the latest measurement.
     /// </summary>
     public RoverMeasurement? LatestMeasurement => _latestMeasurement;
 
     /// <summary>
-    /// Gets all measurements as a list
+    /// Gets all measurements as a list.
+    /// LINQ OrderBy for stable, ascending sequence order.
     /// </summary>
     public List<RoverMeasurement> GetAllMeasurements()
     {
@@ -74,7 +90,8 @@ public class RoverDataMonitor : IDisposable
     }
 
     /// <summary>
-    /// Initializes the monitor and starts polling
+    /// Initializes the monitor and starts polling.
+    /// Async/await avoids blocking; initial load populates cache.
     /// </summary>
     public async Task StartAsync()
     {
@@ -83,13 +100,13 @@ public class RoverDataMonitor : IDisposable
         // Load initial data
         await LoadInitialData();
         
-        // Start polling for new data
-        _pollTimer.Change(1000, 1000); // Poll every second
-        _statusTimer.Change(2000, 2000); // Status every 2 seconds
+        // Start polling for new data and status with configured intervals
+        _pollTimer.Change(_pollIntervalMs, _pollIntervalMs);
+        _statusTimer.Change(_statusIntervalMs, _statusIntervalMs);
     }
 
     /// <summary>
-    /// Stops the monitor
+    /// Stops the monitor (pauses timers).
     /// </summary>
     public void Stop()
     {
@@ -120,6 +137,7 @@ public class RoverDataMonitor : IDisposable
         }
     }
 
+    // Timer callback uses async void by design in this pattern; exceptions are caught internally.
     private async void PollForNewData(object? state)
     {
         try
@@ -146,7 +164,7 @@ public class RoverDataMonitor : IDisposable
                 
                 if (addedCount > 0)
                 {
-                    // Fire event for new data
+                    // Fire event for new data (consumer is responsible for UI-thread marshalling)
                     DataUpdated?.Invoke(this, new RoverDataUpdateEventArgs
                     {
                         NewMeasurementsCount = addedCount,

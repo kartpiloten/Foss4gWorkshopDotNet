@@ -1,9 +1,16 @@
+/*
+ The functionallity in this file is:
+ - Create a data repository (GeoPackage or Postgres) from typed settings, with a minimal connectivity check.
+ - Use async/await and CancellationToken for non-blocking validation.
+ - Keep console guidance concise for workshop users.
+*/
+
 using RoverSimulator.Configuration;
 
 namespace RoverSimulator.Services;
 
 /// <summary>
-/// Service responsible for creating and validating database connections
+/// Service responsible for creating and validating database connections.
 /// </summary>
 public class DatabaseService
 {
@@ -15,7 +22,7 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Creates the appropriate data repository with connection validation
+    /// Creates the appropriate data repository with connection validation.
     /// </summary>
     public async Task<IRoverDataRepository> CreateRepositoryAsync(CancellationToken cancellationToken = default)
     {
@@ -73,7 +80,7 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Tests PostgreSQL database connectivity with timeout and retry logic
+    /// Tests PostgreSQL database connectivity with timeout and retry logic.
     /// </summary>
     private async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(CancellationToken cancellationToken = default)
     {
@@ -88,12 +95,10 @@ public class DatabaseService
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(TimeSpan.FromSeconds(_settings.Connection.TimeoutSeconds));
 
-                // Create test repository to validate connection
                 using var testRepo = new PostgresRoverDataRepository(_settings.Postgres.ConnectionString);
 
                 Console.WriteLine($"  Attempt {attempt}/{_settings.Connection.MaxRetryAttempts}: Connecting...");
 
-                // Try to initialize - this will test the full connection including database creation
                 await testRepo.InitializeAsync(cts.Token);
 
                 Console.WriteLine("  SUCCESS: PostgreSQL connection established!");
@@ -118,7 +123,6 @@ public class DatabaseService
                 var message = $"  ERROR: Connection attempt {attempt} failed: {ex.Message}";
                 Console.WriteLine(message);
 
-                // For specific error types, don't retry
                 if (ex.Message.Contains("authentication failed") ||
                     ex.Message.Contains("database") && ex.Message.Contains("does not exist") ||
                     ex.Message.Contains("permission denied"))
@@ -142,9 +146,6 @@ public class DatabaseService
         return (false, "Connection failed: Unknown error");
     }
 
-    /// <summary>
-    /// Gets a human-readable description of the PostgreSQL server info
-    /// </summary>
     private string GetPostgresServerInfo()
     {
         try

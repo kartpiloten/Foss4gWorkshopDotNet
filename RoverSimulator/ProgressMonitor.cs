@@ -1,7 +1,14 @@
+/*
+ The functionallity in this file is:
+ - Provide a tiny console progress monitor with a Ctrl+P toggle.
+ - Keep UI concerns out of the simulator loop; Blazor can consume progress differently.
+ - Use a background task to read keys without blocking the simulation.
+*/
+
 namespace RoverSimulator;
 
 /// <summary>
-/// Shared progress state container for the simulator
+/// Shared progress state container for the simulator.
 /// </summary>
 public static class ProgressState 
 { 
@@ -9,7 +16,7 @@ public static class ProgressState
 }
 
 /// <summary>
-/// Handles progress reporting and user input monitoring
+/// Handles progress reporting and user input monitoring.
 /// </summary>
 public class ProgressMonitor : IDisposable
 {
@@ -26,7 +33,7 @@ public class ProgressMonitor : IDisposable
     }
 
     /// <summary>
-    /// Reports progress for rover measurements
+    /// Reports progress for rover measurements (prints every 10 rows).
     /// </summary>
     public static void ReportProgress(int sequenceNumber, Guid sessionId, double latitude, double longitude, string windInfo)
     {
@@ -36,9 +43,6 @@ public class ProgressMonitor : IDisposable
         }
     }
 
-    /// <summary>
-    /// Monitors keyboard input for progress toggle and cancellation
-    /// </summary>
     private async Task MonitorKeyboardInputAsync()
     {
         while (!_cancellationTokenSource.IsCancellationRequested)
@@ -52,7 +56,7 @@ public class ProgressMonitor : IDisposable
                     Console.WriteLine($"[progress] {(ProgressState.Enabled ? "ON" : "OFF")}");
                 }
             }
-            await Task.Delay(50, CancellationToken.None); // Small polling delay
+            await Task.Delay(50, CancellationToken.None);
         }
     }
 
@@ -63,10 +67,9 @@ public class ProgressMonitor : IDisposable
             try
             {
                 _cancellationTokenSource.Cancel();
-                // Wait for the task to complete before disposing
                 if (_keyboardMonitorTask != null && !_keyboardMonitorTask.IsCompleted)
                 {
-                    _keyboardMonitorTask.Wait(TimeSpan.FromSeconds(1)); // Give it 1 second to complete
+                    _keyboardMonitorTask.Wait(TimeSpan.FromSeconds(1));
                 }
             }
             catch (Exception)
