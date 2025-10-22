@@ -1,14 +1,14 @@
 // ====== Fullscreen Leaflet Map (Single Rover Trail Version) ======
 // Loading Rover Tracker with a Single Persistent Trail
 
-console.log('??? Loading Rover Tracker (Leaflet single trail mode)...');
+console.log('Loading Rover Tracker (Leaflet single trail mode)...');
 
 let roverTrailPolyline = null;
 let roverTrailCoords = []; // Persist coordinates client-side
 let lastTrailPointCount = 0;
 
 window.initLeafletMap = async function() {
-    console.log('??? Initializing Leaflet map (trail only)...');
+    console.log('Initializing Leaflet map (trail only)...');
 
     let mapCenter = [-36.718362, 174.577555];
     let mapZoom = 12;
@@ -81,7 +81,7 @@ window.initLeafletMap = async function() {
     
     async function loadInitialTrail() {
         try {
-            console.log('??? Loading initial rover trail...');
+            console.log('Loading initial rover trail...');
             const response = await fetch('/api/rover-trail?limit=5000'); // big number; server limits if needed
             if (!response.ok) return;
             

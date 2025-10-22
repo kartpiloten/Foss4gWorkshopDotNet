@@ -1,7 +1,7 @@
 // ====== Fullscreen OpenLayers Map (Single Rover Trail Version) ======
 // Loading Rover Tracker with a Single Persistent Trail
 
-console.log('??? Loading Rover Tracker (OpenLayers - single trail mode)...');
+console.log(' Loading Rover Tracker (OpenLayers - single trail mode)...');
 
 let map = null;
 let roverTrailSource = null;
@@ -10,7 +10,7 @@ let roverTrailCoords = []; // Persist coordinates client-side
 let lastTrailPointCount = 0;
 
 window.initOpenLayersMap = async function() {
-    console.log('??? Initializing OpenLayers map (trail only)...');
+    console.log('Initializing OpenLayers map (trail only)...');
 
     let mapCenter = ol.proj.fromLonLat([174.577555, -36.718362]); // [lng, lat]
     let mapZoom = 12;
