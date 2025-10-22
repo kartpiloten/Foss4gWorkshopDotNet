@@ -23,11 +23,37 @@ Console.WriteLine();
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += HandleCancelKeyPress;
 
+double? lastUnifiedAreaM2 = null; // Track last unified polygon area to detect size changes
+
 void HandleCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
 {
     e.Cancel = true;
     cts.Cancel();
     Console.WriteLine("\nShutdown requested...");
+}
+
+// Helper to resolve the forest GeoPackage path once and reuse it
+string FindForestFile()
+{
+    // Start from the app base directory and walk up until we find Solutionresources/RiverHeadForest.gpkg
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    while (dir != null)
+    {
+        var candidate = Path.Combine(dir.FullName, "Solutionresources", "RiverHeadForest.gpkg");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+        dir = dir.Parent;
+    }
+
+    // Fallbacks (less likely but kept for convenience)
+    var fallbacks = new[]
+    {
+        Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
+        Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
+    };
+    return fallbacks.FirstOrDefault(File.Exists) ?? fallbacks[0];
 }
 
 // Create database configuration
@@ -73,6 +99,11 @@ try
         pollIntervalMs: 1000
     );
 
+    // Resolve forest file path once (used in initial test and on every size change)
+    var forestPath = FindForestFile();
+    Console.WriteLine($"Resolved forest file path: {forestPath}");
+    Console.WriteLine($"Forest file exists: {File.Exists(forestPath)}");
+
     // Initialize GeoPackage updater with file locking handling
     geoPackageUpdater = new GeoPackageUpdater(TesterConfiguration.OutputGeoPackagePath);
     await geoPackageUpdater.InitializeAsync();
@@ -81,7 +112,34 @@ try
     scentService.PolygonsUpdated += async (sender, args) =>
     {
         Console.WriteLine($"[GeoPackage] Polygon update received: {args.NewPolygons.Count} new polygons, total: {args.TotalPolygonCount}");
+
+        // Update unified polygon in GeoPackage
         await geoPackageUpdater.UpdateUnifiedPolygonAsync(scentService);
+
+        // Check if unified polygon size changed and, if so, compute and print forest + unified areas
+        try
+        {
+            var unified = scentService.GetUnifiedScentPolygonCached();
+            if (unified != null && unified.IsValid)
+            {
+                var currentArea = unified.TotalAreaM2;
+                // Consider any non-trivial change (tolerance 0.5 m^2 to avoid noise)
+                if (lastUnifiedAreaM2 is null || Math.Abs(currentArea - lastUnifiedAreaM2.Value) > 0.5)
+                {
+                    lastUnifiedAreaM2 = currentArea;
+
+                    var (intersectM2, forestM2) = await scentService.GetForestIntersectionAreasAsync(forestPath);
+                    Console.WriteLine("\nCoverage sizes (m²):");
+                    Console.WriteLine($"  Unified (scent):    {currentArea:n0} m²");
+                    Console.WriteLine($"  RiverHead forest:   {forestM2:n0} m²");
+                    Console.WriteLine($"  Intersection:       {intersectM2:n0} m²");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Tester] Forest coverage update failed: {ex.Message}");
+        }
     };
 
     // Subscribe to status updates for regular console output
@@ -99,6 +157,24 @@ try
     // Create initial unified polygon in GeoPackage
     Console.WriteLine("Creating initial unified polygon in GeoPackage...");
     await geoPackageUpdater.UpdateUnifiedPolygonAsync(scentService);
+
+    // Quick test: compute forest + intersection areas in m² using the service method
+    try
+    {
+        var unifiedQt = scentService.GetUnifiedScentPolygonCached();
+        var (intersectM2, forestM2) = await scentService.GetForestIntersectionAreasAsync(forestPath);
+        Console.WriteLine("\nCoverage sizes (m²):");
+        if (unifiedQt != null)
+        {
+            Console.WriteLine($"  Unified (scent):    {unifiedQt.TotalAreaM2:n0} m²");
+        }
+        Console.WriteLine($"  RiverHead forest:   {forestM2:n0} m²");
+        Console.WriteLine($"  Intersection:       {intersectM2:n0} m²");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Tester] Forest coverage quick test failed: {ex.Message}");
+    }
 
     // Print latest scent polygon
     var latest = scentService.LatestPolygon;

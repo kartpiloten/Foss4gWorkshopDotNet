@@ -2,6 +2,7 @@ This file contains instructions for using GitHub Copilot effectively.
 It provides guidelines on how to write prompts, examples of good and bad prompts, and tips for refining code suggestions.
 # Code style and conventions
 - Simplify code as much as possible. Focus on the learning experience.
+- In the frontend minimize javascript code. Use blazor components as much as possible.
 - Do not include to much error handling, logging, or configuration code that distracts from the main point.
 - Do not include any emojis in the code or comments.
 - Make small comments in the code where .NET-specific concepts are used that may not be familiar to all users. Ex Dependency Injection, Async/Await, LINQ, etc.

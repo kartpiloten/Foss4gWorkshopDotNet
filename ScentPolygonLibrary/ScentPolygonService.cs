@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Hosting;
 using ReadRoverDBStubLibrary;
 using System.Collections.Concurrent;
+using MapPiloteGeopackageHelper; // GeoPackage helper (async APIs)
+using NetTopologySuite.Geometries; // NTS geometries for intersection/area
 
 namespace ScentPolygonLibrary;
 
@@ -153,6 +155,74 @@ public class ScentPolygonService : IHostedService, IDisposable
             }
             
             return _unifiedCache;
+        }
+    }
+
+    /// <summary>
+    /// Calculates forest and intersection areas (square meters) between the unified scent polygon and the RiverHead forest polygon.
+    /// </summary>
+    /// <param name="forestGeoPackagePath">Path to the GeoPackage containing the forest boundary</param>
+    /// <param name="layerName">Layer name for the forest polygon (default: "riverheadforest")</param>
+    /// <returns>(intersectionAreaM2, forestAreaM2) as integers (m²)</returns>
+    public async Task<(int intersectionAreaM2, int forestAreaM2)> GetForestIntersectionAreasAsync(
+        string forestGeoPackagePath,
+        string layerName = "riverheadforest")
+    {
+        try
+        {
+            // Get unified polygon (cached)
+            var unified = GetUnifiedScentPolygonCached();
+            if (unified == null || !unified.IsValid)
+            {
+                return (0, 0);
+            }
+
+            if (!File.Exists(forestGeoPackagePath))
+            {
+                Console.WriteLine($"[ScentService] Forest file not found: {forestGeoPackagePath}");
+                return (0, 0);
+            }
+
+            using var gp = await GeoPackage.OpenAsync(forestGeoPackagePath, 4326);
+            var layer = await gp.EnsureLayerAsync(layerName, new Dictionary<string, string>(), 4326);
+
+            await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
+            {
+                if (feature.Geometry is Polygon forestPolygon)
+                {
+                    // Quick exit if forest invalid
+                    if (!forestPolygon.IsValid)
+                    {
+                        var fixedGeom = forestPolygon.Buffer(0.0);
+                        if (fixedGeom is Polygon fixedPoly)
+                        {
+                            forestPolygon = fixedPoly;
+                        }
+                    }
+
+                    // Approximate area conversion from degrees² to m² using latitude factor
+                    var avgLat = forestPolygon.Centroid.Y;
+                    var metersPerDegLat = 111320.0;
+                    var metersPerDegLon = 111320.0 * Math.Cos(avgLat * Math.PI / 180.0);
+
+                    var forestAreaM2Double = forestPolygon.Area * metersPerDegLat * metersPerDegLon;
+                    var intersection = forestPolygon.Intersection(unified.Polygon);
+                    var intersectionAreaM2Double = intersection.Area * metersPerDegLat * metersPerDegLon;
+
+                    // Cast to int (truncate) as requested
+                    var forestAreaM2 = (int)Math.Max(0, Math.Round(forestAreaM2Double));
+                    var intersectionAreaM2 = (int)Math.Max(0, Math.Round(intersectionAreaM2Double));
+
+                    return (intersectionAreaM2, forestAreaM2);
+                }
+            }
+
+            return (0, 0);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ScentService] GetForestIntersectionAreasAsync error: {ex.Message}");
+            return (0, 0);
         }
     }
 
