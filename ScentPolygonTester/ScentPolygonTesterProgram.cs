@@ -129,10 +129,12 @@ try
                     lastUnifiedAreaM2 = currentArea;
 
                     var (intersectM2, forestM2) = await scentService.GetForestIntersectionAreasAsync(forestPath);
+                    int AreaCoveredPercent = forestM2 > 0 ? (int)Math.Round(((double)intersectM2 / forestM2) * 100) : 0;
                     Console.WriteLine("\nCoverage sizes (m²):");
                     Console.WriteLine($"  Unified (scent):    {currentArea:n0} m²");
                     Console.WriteLine($"  RiverHead forest:   {forestM2:n0} m²");
                     Console.WriteLine($"  Intersection:       {intersectM2:n0} m²");
+                    Console.WriteLine($"  Area covered:       {AreaCoveredPercent:n0}%");
                 }
             }
         }

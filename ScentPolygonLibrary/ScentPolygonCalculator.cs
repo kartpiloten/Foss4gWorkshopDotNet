@@ -68,16 +68,18 @@ public static class ScentPolygonCalculator
             var fanRing = geometryFactory.CreateLinearRing(fanCoordinates.ToArray());
             var fanPolygon = geometryFactory.CreatePolygon(fanRing);
             fanPolygon.SRID = 4326;
+            Polygon finalPolygon = fanPolygon;
+            //**********************************************************************************************
+                        // 2. Create circular buffer around dog (omnidirectional detection)
+                        var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
+                        var circularBuffer = dogPoint.Buffer(bufferRadiusDegrees);
 
-            // 2. Create circular buffer around dog (omnidirectional detection)
-            var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
-            var circularBuffer = dogPoint.Buffer(bufferRadiusDegrees);
+                        // 3. Combine fan and circular buffer using union
+                        var combinedGeometry = fanPolygon.Union(circularBuffer);
+            //**********************************************************************************************
 
-            // 3. Combine fan and circular buffer using union
-            var combinedGeometry = fanPolygon.Union(circularBuffer);
-
-            // Handle different result types from union
-            Polygon finalPolygon;
+            /*// Handle different result types from union
+            
             if (combinedGeometry is Polygon singlePolygon)
             {
                 finalPolygon = singlePolygon;
@@ -92,6 +94,7 @@ public static class ScentPolygonCalculator
                 // Fallback to circular buffer only
                 finalPolygon = circularBuffer as Polygon ?? fanPolygon;
             }
+            */
 
             finalPolygon.SRID = 4326;
 
