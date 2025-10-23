@@ -1,8 +1,16 @@
-using Microsoft.Extensions.Hosting;
-using ReadRoverDBStubLibrary;
-using System.Collections.Concurrent;
-using MapPiloteGeopackageHelper; // GeoPackage helper (async APIs)
-using NetTopologySuite.Geometries; // NTS geometries for intersection/area
+/*
+ The functionallity in this file is:
+ - Provide a minimal background service that reads rover measurements and builds scent polygons.
+ - Expose latest polygon, a cached unified polygon, and simple events for UI/consumers.
+ - Keep implementation simple for learning (.NET HostedService, async/await, basic locking),
+   and small FOSS4G notes (NTS for geometry, GeoPackage helper for file-based vector data).
+*/
+
+using Microsoft.Extensions.Hosting; // .NET HostedService pattern
+using ReadRoverDBStubLibrary; // Data reader abstraction (async APIs)
+using System.Collections.Concurrent; // Thread-safe dictionary for storing polygons
+using MapPiloteGeopackageHelper; // GeoPackage helper (async APIs) - used only for forest intersection
+using NetTopologySuite.Geometries; // NTS geometry types and operations
 
 namespace ScentPolygonLibrary;
 
@@ -13,19 +21,19 @@ public class ScentPolygonService : IHostedService, IDisposable
 {
     private readonly IRoverDataReader _dataReader;
     private readonly ScentPolygonConfiguration _configuration;
-    private readonly Timer _pollTimer;
+    private readonly Timer _pollTimer; // simple periodic polling (no external scheduler)
     private readonly ConcurrentDictionary<int, ScentPolygonResult> _polygons;
     private bool _disposed;
     private int _lastKnownSequence = -1;
     private ScentPolygonResult? _latestPolygon;
 
-    // Unified cache & versioning
+    // Unified cache & versioning (small lock to protect updates)
     private UnifiedScentPolygon? _unifiedCache;
     private bool _unifiedDirty = true;
     private int _unifiedVersion = 0;
     private readonly object _unifiedLock = new();
 
-    // Events for notifications
+    // Events for notifications (used by console/Blazor front-ends)
     public event EventHandler<ScentPolygonUpdateEventArgs>? PolygonsUpdated;
     public event EventHandler<ScentPolygonStatusEventArgs>? StatusUpdate;
 
@@ -40,148 +48,59 @@ public class ScentPolygonService : IHostedService, IDisposable
         _pollTimer = new Timer(PollForNewMeasurements, null, Timeout.Infinite, pollIntervalMs);
     }
 
-    /// <summary>
-    /// Gets the current count of polygons in the collection
-    /// </summary>
+    // --- Public state ---
     public int Count => _polygons.Count;
-
-    /// <summary>
-    /// Gets the latest polygon
-    /// </summary>
     public ScentPolygonResult? LatestPolygon => _latestPolygon;
-
-    /// <summary>
-    /// Gets the unified polygon version
-    /// </summary>
     public int UnifiedVersion => _unifiedVersion;
 
-    /// <summary>
-    /// Gets all polygons as a list ordered by sequence
-    /// </summary>
-    public List<ScentPolygonResult> GetAllPolygons()
-    {
-        return _polygons.Values.OrderBy(p => p.Sequence).ToList();
-    }
+    public List<ScentPolygonResult> GetAllPolygons() =>
+        _polygons.Values.OrderBy(p => p.Sequence).ToList(); // LINQ: order for deterministic output
 
     /// <summary>
-    /// Gets polygons for a specific session
-    /// </summary>
-    public List<ScentPolygonResult> GetPolygonsForSession(Guid sessionId)
-    {
-        return _polygons.Values
-            .Where(p => p.SessionId == sessionId)
-            .OrderBy(p => p.Sequence)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Gets the latest N polygons
-    /// </summary>
-    public List<ScentPolygonResult> GetLatestPolygons(int count)
-    {
-        return _polygons.Values
-            .OrderByDescending(p => p.Sequence)
-            .Take(count)
-            .OrderBy(p => p.Sequence)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Gets polygons within a time range
-    /// </summary>
-    public List<ScentPolygonResult> GetPolygonsInTimeRange(DateTimeOffset start, DateTimeOffset end)
-    {
-        return _polygons.Values
-            .Where(p => p.RecordedAt >= start && p.RecordedAt <= end)
-            .OrderBy(p => p.Sequence)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Creates a unified scent polygon by combining all individual polygons using Union operation.
-    /// This represents the total coverage area of all scent detections.
+    /// Non-cached unified polygon (calls calculator each time)
     /// </summary>
     public UnifiedScentPolygon? GetUnifiedScentPolygon()
     {
-        var allPolygons = GetAllPolygons();
-        
-        if (!allPolygons.Any())
-        {
-            return null;
-        }
-
-        return ScentPolygonCalculator.CreateUnifiedPolygon(allPolygons);
+        var all = GetAllPolygons();
+        if (!all.Any()) return null;
+        return ScentPolygonCalculator.CreateUnifiedPolygon(all);
     }
 
     /// <summary>
-    /// Cached version - recomputes only when new polygons added.
+    /// Cached version - recomputes only when new polygons were added.
     /// </summary>
     public UnifiedScentPolygon? GetUnifiedScentPolygonCached()
     {
-        // Check if cache is dirty or null first (outside lock for performance)
-        if (!_unifiedDirty && _unifiedCache != null) 
-        {
+        if (!_unifiedDirty && _unifiedCache != null)
             return _unifiedCache;
-        }
-        
-        lock (_unifiedLock)
+
+        lock (_unifiedLock) // lock to avoid concurrent regeneration
         {
-            // Double-check pattern
-            if (!_unifiedDirty && _unifiedCache != null) 
-            {
+            if (!_unifiedDirty && _unifiedCache != null)
                 return _unifiedCache;
-            }
-            
+
             var all = GetAllPolygons();
-            if (!all.Any()) 
-            {
-                _unifiedCache = null;
-                _unifiedDirty = false;
-                return null;
-            }
-            
-            try
-            {
-                Console.WriteLine($"[ScentService] Regenerating unified polygon from {all.Count} polygons");
-                _unifiedCache = ScentPolygonCalculator.CreateUnifiedPolygon(all);
-                _unifiedDirty = false;
-                Console.WriteLine($"[ScentService] Unified polygon regenerated successfully. Version={_unifiedVersion}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ScentService] Unified polygon creation failed: {ex.Message}");
-                _unifiedCache = null;
-                _unifiedDirty = false; // Mark as clean to prevent infinite retry
-            }
-            
+            if (!all.Any()) { _unifiedCache = null; _unifiedDirty = false; return null; }
+
+            _unifiedCache = ScentPolygonCalculator.CreateUnifiedPolygon(all);
+            _unifiedDirty = false;
             return _unifiedCache;
         }
     }
 
     /// <summary>
-    /// Calculates forest and intersection areas (square meters) between the unified scent polygon and the RiverHead forest polygon.
+    /// Calculates forest and intersection areas (square meters) between the unified scent polygon and a forest polygon.
+    /// Uses GeoPackage helper to read a single polygon (EPSG:4326). NTS does the intersection and area.
     /// </summary>
-    /// <param name="forestGeoPackagePath">Path to the GeoPackage containing the forest boundary</param>
-    /// <param name="layerName">Layer name for the forest polygon (default: "riverheadforest")</param>
-    /// <returns>(intersectionAreaM2, forestAreaM2) as integers (m²)</returns>
     public async Task<(int intersectionAreaM2, int forestAreaM2)> GetForestIntersectionAreasAsync(
         string forestGeoPackagePath,
         string layerName = "riverheadforest")
     {
         try
         {
-            // Get unified polygon (cached)
             var unified = GetUnifiedScentPolygonCached();
-            if (unified == null || !unified.IsValid)
-            {
-                return (0, 0);
-            }
-
-            if (!File.Exists(forestGeoPackagePath))
-            {
-                Console.WriteLine($"[ScentService] Forest file not found: {forestGeoPackagePath}");
-                return (0, 0);
-            }
+            if (unified == null || !unified.IsValid) return (0, 0);
+            if (!File.Exists(forestGeoPackagePath)) return (0, 0);
 
             using var gp = await GeoPackage.OpenAsync(forestGeoPackagePath, 4326);
             var layer = await gp.EnsureLayerAsync(layerName, new Dictionary<string, string>(), 4326);
@@ -190,90 +109,34 @@ public class ScentPolygonService : IHostedService, IDisposable
             {
                 if (feature.Geometry is Polygon forestPolygon)
                 {
-                    // Quick exit if forest invalid
                     if (!forestPolygon.IsValid)
                     {
                         var fixedGeom = forestPolygon.Buffer(0.0);
-                        if (fixedGeom is Polygon fixedPoly)
-                        {
-                            forestPolygon = fixedPoly;
-                        }
+                        if (fixedGeom is Polygon fixedPoly) forestPolygon = fixedPoly; // NTS: Buffer(0) fix
                     }
 
-                    // Approximate area conversion from degrees² to m² using latitude factor
                     var avgLat = forestPolygon.Centroid.Y;
-                    var metersPerDegLat = 111320.0;
-                    var metersPerDegLon = 111320.0 * Math.Cos(avgLat * Math.PI / 180.0);
+                    var metersPerDegLat = 111_320.0;
+                    var metersPerDegLon = 111_320.0 * Math.Cos(avgLat * Math.PI / 180.0);
 
-                    var forestAreaM2Double = forestPolygon.Area * metersPerDegLat * metersPerDegLon;
+                    var forestAreaM2 = (int)Math.Max(0, Math.Round(forestPolygon.Area * metersPerDegLat * metersPerDegLon));
                     var intersection = forestPolygon.Intersection(unified.Polygon);
-                    var intersectionAreaM2Double = intersection.Area * metersPerDegLat * metersPerDegLon;
-
-                    // Cast to int (truncate) as requested
-                    var forestAreaM2 = (int)Math.Max(0, Math.Round(forestAreaM2Double));
-                    var intersectionAreaM2 = (int)Math.Max(0, Math.Round(intersectionAreaM2Double));
+                    var intersectionAreaM2 = (int)Math.Max(0, Math.Round(intersection.Area * metersPerDegLat * metersPerDegLon));
 
                     return (intersectionAreaM2, forestAreaM2);
                 }
             }
-
             return (0, 0);
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"[ScentService] GetForestIntersectionAreasAsync error: {ex.Message}");
+            // Keep simple for demo
             return (0, 0);
         }
     }
 
     /// <summary>
-    /// Creates a unified scent polygon for a specific session by combining all polygons from that session.
-    /// </summary>
-    public UnifiedScentPolygon? GetUnifiedScentPolygonForSession(Guid sessionId)
-    {
-        var sessionPolygons = GetPolygonsForSession(sessionId);
-        
-        if (!sessionPolygons.Any())
-        {
-            return null;
-        }
-
-        return ScentPolygonCalculator.CreateUnifiedPolygon(sessionPolygons);
-    }
-
-    /// <summary>
-    /// Creates a unified scent polygon for the latest N polygons.
-    /// Useful for showing recent coverage area.
-    /// </summary>
-    public UnifiedScentPolygon? GetUnifiedScentPolygonForLatest(int count)
-    {
-        var recentPolygons = GetLatestPolygons(count);
-        
-        if (!recentPolygons.Any())
-        {
-            return null;
-        }
-
-        return ScentPolygonCalculator.CreateUnifiedPolygon(recentPolygons);
-    }
-
-    /// <summary>
-    /// Creates a unified scent polygon for polygons within a time range.
-    /// </summary>
-    public UnifiedScentPolygon? GetUnifiedScentPolygonForTimeRange(DateTimeOffset start, DateTimeOffset end)
-    {
-        var timeRangePolygons = GetPolygonsInTimeRange(start, end);
-        
-        if (!timeRangePolygons.Any())
-        {
-            return null;
-        }
-
-        return ScentPolygonCalculator.CreateUnifiedPolygon(timeRangePolygons);
-    }
-
-    /// <summary>
-    /// Generates a scent polygon for a specific measurement (on-demand calculation)
+    /// Generates a scent polygon for a specific measurement.
     /// </summary>
     public ScentPolygonResult GeneratePolygonForMeasurement(RoverMeasurement measurement)
     {
@@ -285,7 +148,6 @@ public class ScentPolygonService : IHostedService, IDisposable
             _configuration);
 
         var scentArea = ScentPolygonCalculator.CalculateScentAreaM2(polygon, measurement.Latitude);
-        var maxDistance = ScentPolygonCalculator.CalculateMaxScentDistance(measurement.WindSpeedMps);
 
         return new ScentPolygonResult
         {
@@ -297,20 +159,16 @@ public class ScentPolygonService : IHostedService, IDisposable
             Longitude = measurement.Longitude,
             WindDirectionDeg = measurement.WindDirectionDeg,
             WindSpeedMps = measurement.WindSpeedMps,
-            ScentAreaM2 = scentArea,
-            MaxDistanceM = maxDistance
+            ScentAreaM2 = scentArea
         };
     }
 
+    // --- HostedService lifecycle ---
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await _dataReader.InitializeAsync(cancellationToken);
-        
-        // Load initial data
+        await _dataReader.InitializeAsync(cancellationToken); // async DB/file init
         await LoadInitialPolygons();
-        
-        // Start polling for new measurements
-        _pollTimer.Change(0, 1000); // Poll every second
+        _pollTimer.Change(0, 1000); // start polling every second
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -319,141 +177,72 @@ public class ScentPolygonService : IHostedService, IDisposable
         return Task.CompletedTask;
     }
 
+    // Initial load is a single pass to keep it simple
     private async Task LoadInitialPolygons()
     {
-        const int maxRetries = 5;
-        const int retryDelayMs = 2000;
-
-        for (int i = 0; i < maxRetries; i++)
+        var measurements = await _dataReader.GetAllMeasurementsAsync();
+        foreach (var m in measurements)
         {
-            try
+            var polygon = GeneratePolygonForMeasurement(m);
+            if (polygon.IsValid && _polygons.TryAdd(polygon.Sequence, polygon))
             {
-                var measurements = await _dataReader.GetAllMeasurementsAsync();
-                
-                if (measurements.Any())
+                if (_latestPolygon == null || polygon.Sequence > _latestPolygon.Sequence)
                 {
-                    foreach (var m in measurements)
-                    {
-                        var polygon = GeneratePolygonForMeasurement(m);
-                        
-                        if (polygon.IsValid && _polygons.TryAdd(polygon.Sequence, polygon))
-                        {
-                            if (_latestPolygon == null || polygon.Sequence > _latestPolygon.Sequence)
-                            {
-                                _latestPolygon = polygon;
-                                _lastKnownSequence = polygon.Sequence;
-                            }
-                        }
-                    }
-                    _unifiedDirty = true; _unifiedVersion++;
-                    Console.WriteLine($"[ScentService] Loaded {measurements.Count} initial polygons. UnifiedVersion={_unifiedVersion}");
-                    return; // Exit after successful load
+                    _latestPolygon = polygon;
+                    _lastKnownSequence = polygon.Sequence;
                 }
-
-                Console.WriteLine($"[ScentService] No initial measurements (attempt {i + 1}/{maxRetries}). Retrying...");
-                await Task.Delay(retryDelayMs);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ScentService] Error loading initial polygons (attempt {i + 1}): {ex.Message}");
-                await Task.Delay(retryDelayMs);
             }
         }
-        
-        Console.WriteLine("[ScentService] Failed to load initial polygons after retries.");
+        lock (_unifiedLock) { _unifiedDirty = true; _unifiedCache = null; _unifiedVersion++; }
     }
 
+    // Simple polling loop (Timer callback). Avoids heavy logging for clarity.
     private async void PollForNewMeasurements(object? state)
     {
         if (_disposed) return;
         try
         {
-            Console.WriteLine($"[ScentService] Polling for new measurements. LastKnownSeq={_lastKnownSequence}");
             var newMeasurements = await _dataReader.GetNewMeasurementsAsync(_lastKnownSequence);
-            Console.WriteLine($"[ScentService] Poll returned {newMeasurements.Count} new measurements");
-            
-            if (newMeasurements.Any())
+            if (!newMeasurements.Any())
             {
-                var newPolygons = new List<ScentPolygonResult>();
-                foreach (var m in newMeasurements)
+                // periodic lightweight status event (every ~10s)
+                if (DateTime.UtcNow.Second % 10 == 0)
                 {
-                    Console.WriteLine($"[ScentService] Processing measurement seq={m.Sequence}, time={m.RecordedAt:HH:mm:ss}");
-                    var polygon = GeneratePolygonForMeasurement(m);
-                    if (polygon.IsValid && _polygons.TryAdd(polygon.Sequence, polygon))
+                    StatusUpdate?.Invoke(this, new ScentPolygonStatusEventArgs { TotalPolygonCount = _polygons.Count, LatestPolygon = _latestPolygon, DataSource = _dataReader.GetType().Name });
+                }
+                return;
+            }
+
+            var newPolygons = new List<ScentPolygonResult>();
+            foreach (var m in newMeasurements)
+            {
+                var polygon = GeneratePolygonForMeasurement(m);
+                if (polygon.IsValid && _polygons.TryAdd(polygon.Sequence, polygon))
+                {
+                    newPolygons.Add(polygon);
+                    if (_latestPolygon == null || polygon.Sequence > _latestPolygon.Sequence)
                     {
-                        newPolygons.Add(polygon);
-                        if (_latestPolygon == null || polygon.Sequence > _latestPolygon.Sequence)
-                        {
-                            _latestPolygon = polygon;
-                            _lastKnownSequence = polygon.Sequence;
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine($"[ScentService] Skipped measurement seq={m.Sequence} (invalid or duplicate)");
+                        _latestPolygon = polygon;
+                        _lastKnownSequence = polygon.Sequence;
                     }
                 }
-                if (newPolygons.Any())
-                {
-                    var oldVersion = _unifiedVersion;
-                    // Force cache invalidation and version increment
-                    lock (_unifiedLock)
-                    {
-                        _unifiedDirty = true;
-                        _unifiedCache = null; // Clear cache to force regeneration
-                        _unifiedVersion++;
-                    }
-                    Console.WriteLine($"[ScentService] UNIFIED UPDATED: Added {newPolygons.Count} polygons. Total={_polygons.Count}. Version {oldVersion} -> {_unifiedVersion}");
-                    
-                    // Fire events
-                    PolygonsUpdated?.Invoke(this, new ScentPolygonUpdateEventArgs { NewPolygons = newPolygons, TotalPolygonCount = _polygons.Count, LatestPolygon = _latestPolygon });
-                }
             }
-            else
+
+            if (newPolygons.Any())
             {
-                Console.WriteLine($"[ScentService] No new measurements found");
+                lock (_unifiedLock) { _unifiedDirty = true; _unifiedCache = null; _unifiedVersion++; }
+                PolygonsUpdated?.Invoke(this, new ScentPolygonUpdateEventArgs { NewPolygons = newPolygons, TotalPolygonCount = _polygons.Count, LatestPolygon = _latestPolygon });
             }
-            
-            // Status update every 10 seconds
+
+            // small periodic status
             if (DateTime.UtcNow.Second % 10 == 0)
             {
-                Console.WriteLine($"[ScentService] Status: Count={_polygons.Count}, Latest={_latestPolygon?.Sequence ?? -1}, Version={_unifiedVersion}, CacheDirty={_unifiedDirty}");
                 StatusUpdate?.Invoke(this, new ScentPolygonStatusEventArgs { TotalPolygonCount = _polygons.Count, LatestPolygon = _latestPolygon, DataSource = _dataReader.GetType().Name });
             }
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"[ScentService] Poll error: {ex.Message}");
-        }
-    }
-
-    public UnifiedScentPolygon? ForceRecomputeUnified()
-    {
-        lock (_unifiedLock)
-        {
-            var all = GetAllPolygons();
-            if (!all.Any()) 
-            {
-                _unifiedCache = null;
-                return null;
-            }
-            
-            try
-            {
-                Console.WriteLine($"[ScentService] Force recomputing unified polygon from {all.Count} polygons");
-                _unifiedCache = ScentPolygonCalculator.CreateUnifiedPolygon(all);
-                _unifiedDirty = false; // Cache is now current
-                _unifiedVersion++; // Explicit version bump for forced rebuild
-                Console.WriteLine($"[ScentService] Forced unified recompute completed. Version={_unifiedVersion}");
-                return _unifiedCache;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ScentService] Forced recompute failed: {ex.Message}");
-                _unifiedCache = null;
-                _unifiedDirty = false;
-                return null;
-            }
+            // Keep silent in learning setup; consumers see state through events
         }
     }
 

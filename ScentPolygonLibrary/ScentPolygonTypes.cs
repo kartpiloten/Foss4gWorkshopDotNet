@@ -1,9 +1,16 @@
-using NetTopologySuite.Geometries;
+/*
+ The functionallity in this file is:
+ - Define minimal types used by the scent polygon library and frontends.
+ - Keep properties focused on learning needs; avoid extra fields to reduce complexity.
+ - Mention where external packages are involved (NTS for geometry).
+*/
+
+using NetTopologySuite.Geometries; // NTS: geometry types (Polygon)
 
 namespace ScentPolygonLibrary;
 
 /// <summary>
-/// Configuration for scent polygon calculation
+/// Configuration for scent polygon calculation (simple model)
 /// </summary>
 public class ScentPolygonConfiguration
 {
@@ -13,7 +20,7 @@ public class ScentPolygonConfiguration
     public double OmnidirectionalRadiusMeters { get; init; } = 30.0;
 
     /// <summary>
-    /// Number of points to use when creating the downwind fan polygon
+    /// Number of points used when creating the upwind fan polygon (resolution)
     /// </summary>
     public int FanPolygonPoints { get; init; } = 15;
 
@@ -24,11 +31,11 @@ public class ScentPolygonConfiguration
 }
 
 /// <summary>
-/// Represents a scent polygon with metadata
+/// Represents a scent polygon with metadata for the originating rover measurement
 /// </summary>
 public class ScentPolygonResult
 {
-    public Polygon Polygon { get; init; } = default!;
+    public Polygon Polygon { get; init; } = default!; // NTS Polygon (EPSG:4326)
     public Guid SessionId { get; init; }
     public int Sequence { get; init; }
     public DateTimeOffset RecordedAt { get; init; }
@@ -37,7 +44,8 @@ public class ScentPolygonResult
     public double WindDirectionDeg { get; init; }
     public double WindSpeedMps { get; init; }
     public double ScentAreaM2 { get; init; }
-    public double MaxDistanceM { get; init; }
+
+    // Convenience validity flag from NTS
     public bool IsValid => Polygon.IsValid;
 }
 
@@ -47,7 +55,7 @@ public class ScentPolygonResult
 public class UnifiedScentPolygon
 {
     /// <summary>
-    /// The combined polygon geometry representing the total coverage area
+    /// The combined polygon geometry representing the total coverage area (NTS Polygon)
     /// </summary>
     public Polygon Polygon { get; init; } = default!;
 
@@ -65,11 +73,6 @@ public class UnifiedScentPolygon
     /// Sum of the areas of all individual polygons before union (may be larger due to overlaps)
     /// </summary>
     public double IndividualAreasSum { get; init; }
-
-    /// <summary>
-    /// Time when the unified polygon was created
-    /// </summary>
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     /// <summary>
     /// Time range covered by the individual polygons
@@ -114,23 +117,21 @@ public class UnifiedScentPolygon
 }
 
 /// <summary>
-/// Event arguments for scent polygon updates
+/// Event arguments for scent polygon updates (used by console/Blazor front-ends)
 /// </summary>
 public class ScentPolygonUpdateEventArgs : EventArgs
 {
     public List<ScentPolygonResult> NewPolygons { get; init; } = new();
     public int TotalPolygonCount { get; init; }
     public ScentPolygonResult? LatestPolygon { get; init; }
-    public DateTimeOffset UpdateTime { get; init; } = DateTimeOffset.UtcNow;
 }
 
 /// <summary>
-/// Event arguments for scent polygon status updates
+/// Event arguments for periodic status updates (lightweight)
 /// </summary>
 public class ScentPolygonStatusEventArgs : EventArgs
 {
     public int TotalPolygonCount { get; init; }
     public ScentPolygonResult? LatestPolygon { get; init; }
-    public DateTimeOffset StatusTime { get; init; } = DateTimeOffset.UtcNow;
     public string DataSource { get; init; } = string.Empty;
 }
