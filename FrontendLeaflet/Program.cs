@@ -29,8 +29,26 @@ builder.Services.AddSingleton<IRoverDataReader>(provider =>
     return reader;
 });
 
-// Simple scent polygon service
-builder.Services.AddSingleton<ScentPolygonService>();
+// Find forest file path
+string FindForestFile()
+{
+    var possiblePaths = new[]
+    {
+        Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
+        Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
+    };
+    
+    return possiblePaths.FirstOrDefault(File.Exists) ?? possiblePaths[0];
+}
+
+var forestPath = FindForestFile();
+
+// Simple scent polygon service with forest path for real-time updates
+builder.Services.AddSingleton<ScentPolygonService>(provider =>
+{
+    var reader = provider.GetRequiredService<IRoverDataReader>();
+    return new ScentPolygonService(reader, forestGeoPackagePath: forestPath);
+});
 builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
 
 var app = builder.Build();
@@ -381,17 +399,6 @@ app.MapGet("/api/combined-coverage", (ScentPolygonService scentService) =>
 });
 
 // ====== Helper Functions ======
-
-string FindForestFile()
-{
-    var possiblePaths = new[]
-    {
-        Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
-        Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
-    };
-    
-    return possiblePaths.FirstOrDefault(File.Exists) ?? possiblePaths[0];
-}
 
 Console.WriteLine("Starting FrontendLeaflet rover tracker...");
 Console.WriteLine("Performance optimizations enabled for large datasets");

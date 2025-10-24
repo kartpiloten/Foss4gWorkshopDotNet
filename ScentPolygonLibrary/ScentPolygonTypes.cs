@@ -135,3 +135,13 @@ public class ScentPolygonStatusEventArgs : EventArgs
     public ScentPolygonResult? LatestPolygon { get; init; }
     public string DataSource { get; init; } = string.Empty;
 }
+
+/// <summary>
+/// Event arguments for forest coverage updates (real-time UI updates)
+/// </summary>
+public class ForestCoverageEventArgs : EventArgs
+{
+    public int SearchedAreaM2 { get; init; }
+    public int ForestAreaM2 { get; init; }
+    public double PercentageSearched => ForestAreaM2 > 0 ? (SearchedAreaM2 / (double)ForestAreaM2) * 100.0 : 0;
+}

@@ -1,0 +1,91 @@
+@inject ScentPolygonLibrary.ScentPolygonService ScentService
+@implements IDisposable
+
+<div class="forest-pie-container">
+    <svg viewBox="0 0 200 200" class="pie-chart">
+        <!-- Background circle -->
+        <circle cx="100" cy="100" r="80" fill="#f0f0f0" stroke="#ccc" stroke-width="2"/>
+        
+        <!-- Searched area slice (green) -->
+        @if (_percentage > 0)
+        {
+            <path d="@GetPiePath()" fill="#4CAF50" stroke="#fff" stroke-width="2"/>
+        }
+        
+        <!-- Center circle for donut effect -->
+        <circle cx="100" cy="100" r="50" fill="white"/>
+        
+        <!-- Percentage text -->
+        <text x="100" y="95" text-anchor="middle" class="pie-percentage">@_percentage.ToString("F1")%</text>
+        <text x="100" y="115" text-anchor="middle" class="pie-label">Searched</text>
+    </svg>
+    
+    <div class="pie-info">
+        <div class="info-row">
+            <span class="info-label">Forest Area:</span>
+            <span class="info-value">@FormatArea(_forestAreaM2)</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Searched:</span>
+            <span class="info-value">@FormatArea(_searchedAreaM2)</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    private double _percentage = 0;
+    private int _searchedAreaM2 = 0;
+    private int _forestAreaM2 = 0;
+
+    protected override void OnInitialized()
+    {
+        ScentService.ForestCoverageUpdated += OnForestCoverageUpdated;
+    }
+
+    private void OnForestCoverageUpdated(object? sender, ScentPolygonLibrary.ForestCoverageEventArgs e)
+    {
+        _searchedAreaM2 = e.SearchedAreaM2;
+        _forestAreaM2 = e.ForestAreaM2;
+        _percentage = e.PercentageSearched;
+        
+        // Clamp percentage to 100 max
+        if (_percentage > 100) _percentage = 100;
+        
+        // Update UI on Blazor's thread
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string GetPiePath()
+    {
+        if (_percentage <= 0) return "";
+        if (_percentage >= 100)
+        {
+            // Full circle
+            return "M 100,20 A 80,80 0 1,1 99.99,20 Z";
+        }
+
+        // Calculate end point of arc
+        var angle = (_percentage / 100.0) * 2 * Math.PI;
+        var endX = 100 + 80 * Math.Sin(angle);
+        var endY = 100 - 80 * Math.Cos(angle);
+        
+        // Large arc flag if more than 50%
+        var largeArc = _percentage > 50 ? 1 : 0;
+        
+        return $"M 100,100 L 100,20 A 80,80 0 {largeArc},1 {endX:F2},{endY:F2} Z";
+    }
+
+    private string FormatArea(int areaM2)
+    {
+        if (areaM2 < 10000)
+            return $"{areaM2} m²";
+        
+        var hectares = areaM2 / 10000.0;
+        return $"{hectares:F2} ha";
+    }
+
+    public void Dispose()
+    {
+        ScentService.ForestCoverageUpdated -= OnForestCoverageUpdated;
+    }
+}

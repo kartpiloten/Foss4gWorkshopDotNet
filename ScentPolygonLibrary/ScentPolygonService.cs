@@ -26,6 +26,7 @@ public class ScentPolygonService : IHostedService, IDisposable
     private bool _disposed;
     private int _lastKnownSequence = -1;
     private ScentPolygonResult? _latestPolygon;
+    private readonly string? _forestGeoPackagePath;
 
     // Unified cache & versioning (small lock to protect updates)
     private UnifiedScentPolygon? _unifiedCache;
@@ -36,16 +37,19 @@ public class ScentPolygonService : IHostedService, IDisposable
     // Events for notifications (used by console/Blazor front-ends)
     public event EventHandler<ScentPolygonUpdateEventArgs>? PolygonsUpdated;
     public event EventHandler<ScentPolygonStatusEventArgs>? StatusUpdate;
+    public event EventHandler<ForestCoverageEventArgs>? ForestCoverageUpdated;
 
     public ScentPolygonService(
         IRoverDataReader dataReader,
         ScentPolygonConfiguration? configuration = null,
-        int pollIntervalMs = 1000)
+        int pollIntervalMs = 1000,
+        string? forestGeoPackagePath = null)
     {
         _dataReader = dataReader ?? throw new ArgumentNullException(nameof(dataReader));
         _configuration = configuration ?? new ScentPolygonConfiguration();
         _polygons = new ConcurrentDictionary<int, ScentPolygonResult>();
         _pollTimer = new Timer(PollForNewMeasurements, null, Timeout.Infinite, pollIntervalMs);
+        _forestGeoPackagePath = forestGeoPackagePath;
     }
 
     // --- Public state ---
@@ -89,7 +93,7 @@ public class ScentPolygonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Calculates forest and intersection areas (m²) between the unified scent polygon and a forest polygon.
+    /// Calculates forest and intersection areas (mï¿½) between the unified scent polygon and a forest polygon.
     /// Minimal checks to keep it easy to follow.
     /// </summary>
     public async Task<(int searchedAreaM2, int forestAreaM2)> GetForestIntersectionAreasAsync(
@@ -107,13 +111,13 @@ public class ScentPolygonService : IHostedService, IDisposable
         {
             if (feature.Geometry is Polygon forest)
             {
-                // Convert degrees² to m² using latitude scale
+                // Convert degreesï¿½ to mï¿½ using latitude scale
                 var avgLat = forest.Centroid.Y;
                 var metersPerDegLat = 111_320.0;
                 var metersPerDegLon = 111_320.0 * Math.Cos(avgLat * Math.PI / 180.0);
 
                 var forestArea = forest.Area * metersPerDegLat * metersPerDegLon;
-                //UPPGIFT 1 BYT NEDANSTÅENDE RADER
+                //UPPGIFT 1 BYT NEDANSTï¿½ENDE RADER
                 var searchedArea = unified.Polygon.Area * metersPerDegLat * metersPerDegLon;
                 var searchedArea2 = forest.Intersection(unified.Polygon).Area * metersPerDegLat * metersPerDegLon;
 
@@ -149,6 +153,15 @@ public class ScentPolygonService : IHostedService, IDisposable
             WindSpeedMps = measurement.WindSpeedMps,
             ScentAreaM2 = scentArea
         };
+    }
+
+    /// <summary>
+    /// Notifies subscribers about forest coverage updates (async helper for fire-and-forget)
+    /// </summary>
+    private async Task NotifyForestCoverageAsync()
+    {
+        var (searchedAreaM2, forestAreaM2) = await GetForestIntersectionAreasAsync(_forestGeoPackagePath!);
+        ForestCoverageUpdated?.Invoke(this, new ForestCoverageEventArgs { SearchedAreaM2 = searchedAreaM2, ForestAreaM2 = forestAreaM2 });
     }
 
     // --- HostedService lifecycle ---
@@ -220,6 +233,12 @@ public class ScentPolygonService : IHostedService, IDisposable
             {
                 lock (_unifiedLock) { _unifiedDirty = true; _unifiedCache = null; _unifiedVersion++; }
                 PolygonsUpdated?.Invoke(this, new ScentPolygonUpdateEventArgs { NewPolygons = newPolygons, TotalPolygonCount = _polygons.Count, LatestPolygon = _latestPolygon });
+                
+                // Fire forest coverage event if forest path is configured (fire-and-forget)
+                if (!string.IsNullOrEmpty(_forestGeoPackagePath))
+                {
+                    _ = NotifyForestCoverageAsync();
+                }
             }
 
             // small periodic status

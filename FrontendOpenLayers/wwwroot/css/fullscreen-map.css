@@ -274,3 +274,79 @@ body > app > *,
         font-size: 2em; /* Doubled from 1em */
     }
 }
+
+/* Forest Coverage Pie Chart Overlay */
+.forest-pie-container {
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    margin-top: 16px;
+    box-shadow: none;
+}
+
+.pie-chart {
+    width: 160px;
+    height: 160px;
+    display: block;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pie-percentage {
+    font-size: 22px;
+    font-weight: bold;
+    fill: #2d5a27;
+}
+
+.pie-label {
+    font-size: 13px;
+    fill: #666;
+}
+
+.pie-info {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(224, 224, 224, 0.5);
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.info-label {
+    color: #666;
+    font-weight: 500;
+}
+
+.info-value {
+    color: #2d5a27;
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .forest-pie-container {
+        margin-top: 12px;
+    }
+    
+    .pie-chart {
+        width: 120px;
+        height: 120px;
+    }
+    
+    .pie-percentage {
+        font-size: 18px;
+    }
+    
+    .pie-label {
+        font-size: 11px;
+    }
+    
+    .info-row {
+        font-size: 11px;
+    }
+}
