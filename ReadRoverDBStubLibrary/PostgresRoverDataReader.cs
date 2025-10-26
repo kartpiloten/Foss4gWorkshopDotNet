@@ -28,32 +28,18 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     public override async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        // Async initialization (async/await) to avoid blocking the calling thread
-        await CreateAndOpenConnectionAsync(cancellationToken);
-    }
+        // Only initialize once - connection pooling will be handled by Npgsql
+        if (_dataSource != null && _connection != null)
+            return;
 
-    private async Task EnsureConnectionOpenAsync(CancellationToken cancellationToken = default)
-    {
-        if (_connection == null || _connection.State != ConnectionState.Open)
-        {
-            await CreateAndOpenConnectionAsync(cancellationToken);
-        }
-    }
-
-    private async Task CreateAndOpenConnectionAsync(CancellationToken cancellationToken = default)
-    {
         try
         {
-            // Recreate data source/connection to ensure clean state
-            _dataSource?.Dispose();
-            _connection?.Dispose();
-
             // UseNetTopologySuite registers PostGIS type handlers so 'geom' maps to NTS Point (FOSS4G: PostGIS)
             _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
                 .UseNetTopologySuite()
                 .Build();
 
-            // Open physical connection (ADO.NET)
+            // Open physical connection (ADO.NET) - this will be reused
             _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
             // Quick sanity check: verify table access (schema-qualified)
@@ -84,6 +70,32 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
     }
 
+    private async Task EnsureConnectionOpenAsync(CancellationToken cancellationToken = default)
+    {
+        // Check if connection is broken and needs to be reconnected
+        if (_connection == null || _connection.State == ConnectionState.Broken || _connection.State == ConnectionState.Closed)
+        {
+            try
+            {
+                // Try to reconnect using the existing data source
+                if (_dataSource != null)
+                {
+                    _connection?.Dispose();
+                    _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+                }
+                else
+                {
+                    // Data source was disposed - reinitialize completely
+                    await InitializeAsync(cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to reconnect to database: {ex.Message}", ex);
+            }
+        }
+    }
+
     public override async Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default)
     {
         await EnsureConnectionOpenAsync(cancellationToken);
@@ -100,7 +112,6 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
-            CleanupConnection();
             throw new InvalidOperationException($"Failed to get measurement count: {ex.Message}", ex);
         }
     }
@@ -136,7 +147,6 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
-            CleanupConnection();
             throw new InvalidOperationException($"Failed to get measurements: {ex.Message}", ex);
         }
     }
@@ -168,7 +178,6 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
-            CleanupConnection();
             throw new InvalidOperationException($"Failed to get new measurements: {ex.Message}", ex);
         }
     }
@@ -198,7 +207,6 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
         catch (Exception ex)
         {
-            CleanupConnection();
             throw new InvalidOperationException($"Failed to get latest measurement: {ex.Message}", ex);
         }
     }
@@ -230,11 +238,8 @@ public class PostgresRoverDataReader : RoverDataReaderBase
 
     private void CleanupConnection()
     {
-        // Minimal cleanup to keep sample simple
-        try { _connection?.Dispose(); } catch { }
-        _connection = null;
-        try { _dataSource?.Dispose(); } catch { }
-        _dataSource = null;
+        // Note: Connection will be automatically returned to pool on close
+        // No need to dispose on every error - only on actual disposal of the reader
     }
 
     protected override void Dispose(bool disposing)

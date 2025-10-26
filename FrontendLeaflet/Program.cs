@@ -54,7 +54,7 @@ builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetR
 var app = builder.Build();
 
 // Simple middleware setup
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.MapBlazorHub();
@@ -152,8 +152,6 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
 {
     try
     {
-        await reader.InitializeAsync();
-        
         // Get total count for statistics
         var totalCount = await reader.GetMeasurementCountAsync();
         
@@ -207,7 +205,6 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, int? limit = 500)
 {
     try
     {
-        await reader.InitializeAsync();
         var measurements = await reader.GetAllMeasurementsAsync();
         
         if (!measurements.Any())
@@ -262,7 +259,6 @@ app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
 {
     try
     {
-        await reader.InitializeAsync();
         var totalCount = await reader.GetMeasurementCountAsync();
         var latest = await reader.GetLatestMeasurementAsync();
         
@@ -293,7 +289,6 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
 {
     try
     {
-        await reader.InitializeAsync();
         var measurements = await reader.GetAllMeasurementsAsync();
         
         if (!measurements.Any())
