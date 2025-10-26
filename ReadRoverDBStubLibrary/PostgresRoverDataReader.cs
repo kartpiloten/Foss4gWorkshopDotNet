@@ -116,7 +116,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         }
     }
 
-    public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default)
+    public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default)
     {
         await EnsureConnectionOpenAsync(cancellationToken);
         try
@@ -124,14 +124,8 @@ public class PostgresRoverDataReader : RoverDataReaderBase
             var sql = @"
                 SELECT session_id, sequence, recorded_at, latitude, longitude, 
                        wind_direction_deg, wind_speed_mps, geom
-                FROM roverdata.rover_measurements";
-            if (!string.IsNullOrWhiteSpace(whereClause))
-            {
-                // For demo simplicity, whereClause is appended directly.
-                // In production, prefer parameterized queries to avoid SQL injection.
-                sql += $" WHERE {whereClause}";
-            }
-            sql += " ORDER BY sequence ASC;";
+                FROM roverdata.rover_measurements ORDER BY sequence ASC;";
+
             await using var cmd = new NpgsqlCommand(sql, _connection);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             var measurements = new List<RoverMeasurement>();

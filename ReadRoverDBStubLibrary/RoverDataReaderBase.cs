@@ -32,7 +32,7 @@ public abstract class RoverDataReaderBase : IRoverDataReader
 
     // Basic read operations (async/await). Keep semantics consistent across providers.
     public abstract Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default);
-    public abstract Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default);
+    public abstract Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default);
     public abstract Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default);
     public abstract Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default);
 

@@ -31,7 +31,7 @@ public interface IRoverDataReader : IDisposable
     /// <summary>
     /// Returns all measurements, optionally filtered (provider-specific whereClause).
     /// </summary>
-    Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default);
+    Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Returns measurements with Sequence greater than lastSequence.

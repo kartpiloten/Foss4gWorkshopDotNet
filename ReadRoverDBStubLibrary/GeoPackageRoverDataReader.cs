@@ -82,14 +82,14 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
     }
 
-    public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(string? whereClause = null, CancellationToken cancellationToken = default)
+    public override async Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default)
     {
         var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
         try
         {
             var readOptions = new ReadOptions(
                 IncludeGeometry: true,
-                WhereClause: whereClause, // For simplicity, raw where clause is passed through
+                WhereClause: null,
                 OrderBy: "sequence ASC"
             );
 
