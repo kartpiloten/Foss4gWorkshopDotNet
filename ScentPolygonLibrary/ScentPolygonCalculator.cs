@@ -1,7 +1,7 @@
 /*
  The functionallity in this file is:
  - Provide minimal helpers to build scent polygons from rover measurements and combine them.
- - Keep algorithms simple for learning: a fan-shaped upwind cone unioned with a small circular buffer.
+ - Keep algorithms simple for learning: a fan-shaped upwind cone.
  - Use NetTopologySuite (NTS) basic operations with small comments (FOSS4G/geometry basics).
 */
 

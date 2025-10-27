@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration; // .NET configuration binding (appsett
 using Microsoft.Extensions.DependencyInjection; // .NET Dependency Injection container
 using Microsoft.Extensions.Options; // Options pattern (IOptions<T>) for typed settings
 using NetTopologySuite.Geometries; // NTS Point used for positions (FOSS4G-friendly)
+using ReadRoverDBStubLibrary; // Add reference to the library
 using RoverSimulator.Configuration;
 using RoverSimulator.Services;
 using System.Diagnostics;
@@ -25,7 +26,7 @@ class RoverSimulatorProgram
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
-        // Dependency Injection: register typed options and services (no DI container complexity)
+        // Dependency Injection: register typed options and services
         var services = new ServiceCollection();
         services.Configure<SimulatorSettings>(configuration);
         services.AddSingleton<DatabaseService>(provider =>
@@ -33,10 +34,13 @@ class RoverSimulatorProgram
             var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
             return new DatabaseService(settings.Database);
         });
-        services.AddSingleton<ForestBoundaryService>(provider =>
+        
+        // Replace ForestBoundaryService with ForestBoundaryReader from ReadRoverDBStubLibrary
+        services.AddSingleton<ForestBoundaryReader>(provider =>
         {
             var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
-            return new ForestBoundaryService(settings.Forest);
+            var geoPackagePath = Path.Combine(GetSolutionDirectory(), settings.Forest.BoundaryFile);
+            return new ForestBoundaryReader(geoPackagePath, settings.Forest.LayerName);
         });
 
         var serviceProvider = services.BuildServiceProvider();
@@ -44,7 +48,7 @@ class RoverSimulatorProgram
         // Resolve settings and services from DI
         var settings = serviceProvider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
         var databaseService = serviceProvider.GetRequiredService<DatabaseService>();
-        var forestService = serviceProvider.GetRequiredService<ForestBoundaryService>();
+        var forestReader = serviceProvider.GetRequiredService<ForestBoundaryReader>();
 
         // Utility: verify existing GeoPackage and exit
         if (args.Length > 0 && args[0] == "--verify")
@@ -66,12 +70,25 @@ class RoverSimulatorProgram
         Console.WriteLine("Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
         Console.WriteLine("Run with '--verify' argument to check existing GeoPackage contents.");
 
-        // Load forest boundary (GeoPackage polygon; FOSS4G: OGC standard)
+        // Load forest boundary using ForestBoundaryReader
         Console.WriteLine("\nLoading forest boundary...");
+        Polygon? forestPolygon = null;
         try
         {
-            await forestService.GetForestBoundaryAsync();
-            Console.WriteLine("Forest boundary loaded successfully!");
+            forestPolygon = await forestReader.GetBoundaryPolygonAsync(cts.Token);
+            if (forestPolygon != null)
+            {
+                var bbox = await forestReader.GetBoundingBoxAsync(cts.Token);
+                var centroid = await forestReader.GetCentroidAsync(cts.Token);
+                Console.WriteLine("Forest boundary loaded successfully!");
+                Console.WriteLine($"  Bounding box: ({bbox?.MinX:F6}, {bbox?.MinY:F6}) to ({bbox?.MaxX:F6}, {bbox?.MaxY:F6})");
+                Console.WriteLine($"  Centroid: ({centroid?.X:F6}, {centroid?.Y:F6})");
+            }
+            else
+            {
+                Console.WriteLine("Warning: Could not load forest boundary.");
+                Console.WriteLine("Using fallback coordinates...");
+            }
         }
         catch (Exception ex)
         {
@@ -79,9 +96,9 @@ class RoverSimulatorProgram
             Console.WriteLine("Using fallback coordinates...");
         }
 
-        using var progressMonitor = new ProgressMonitor(cts); // simple console progress toggle
+        using var progressMonitor = new ProgressMonitor(cts);
 
-        // Create repository (GeoPackage or Postgres/PostGIS via Npgsql + NTS)
+        // Create repository
         IRoverDataRepository repository;
         try
         {
@@ -103,7 +120,7 @@ class RoverSimulatorProgram
         // Run main loop
         try
         {
-            await RunSimulationAsync(repository, settings, forestService, cts.Token);
+            await RunSimulationAsync(repository, settings, forestReader, forestPolygon, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -118,7 +135,8 @@ class RoverSimulatorProgram
         {
             Console.WriteLine("\nCleaning up and releasing file locks...");
             repository.Dispose();
-            await Task.Delay(500); // allow file handles to close (GeoPackage)
+            forestReader.Dispose();
+            await Task.Delay(500);
         }
 
         Console.WriteLine("\nRover simulator stopped.");
@@ -135,7 +153,8 @@ class RoverSimulatorProgram
     private static async Task RunSimulationAsync(
         IRoverDataRepository repository, 
         SimulatorSettings settings, 
-        ForestBoundaryService forestService, 
+        ForestBoundaryReader forestReader,
+        Polygon? forestPolygon,
         CancellationToken cancellationToken)
     {
         // GeoPackage-only: check file lock before creating/opening
@@ -158,29 +177,58 @@ class RoverSimulatorProgram
             throw;
         }
 
-        // Load required forest geometry for boundary checks once
-        var forestPolygon = await forestService.GetForestBoundaryAsync();
+        // Get forest polygon if not already loaded
+        if (forestPolygon == null)
+        {
+            forestPolygon = await forestReader.GetBoundaryPolygonAsync(cancellationToken);
+        }
 
-        // Initial position (NTS Point from centroid or default)
+        // Create fallback polygon if still null
+        if (forestPolygon == null)
+        {
+            var fallbackBounds = settings.Forest.FallbackBounds;
+            var coordinates = new[]
+            {
+                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude),
+                new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MinLatitude),
+                new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MaxLatitude),
+                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MaxLatitude),
+                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude)
+            };
+            forestPolygon = new Polygon(new LinearRing(coordinates)) { SRID = 4326 };
+        }
+
+        // Initial position
         var rng = new Random();
-        var bounds = await forestService.GetBoundingBoxAsync();
-        Point startPoint = settings.Rover.StartPosition.UseForestCentroid
-            ? await forestService.GetForestCentroidAsync()
-            : new Point(settings.Rover.StartPosition.DefaultLongitude, settings.Rover.StartPosition.DefaultLatitude) { SRID = 4326 };
+        var envelope = await forestReader.GetBoundingBoxAsync(cancellationToken) 
+            ?? forestPolygon.EnvelopeInternal;
+        
+        Point startPoint;
+        if (settings.Rover.StartPosition.UseForestCentroid)
+        {
+            var centroid = await forestReader.GetCentroidAsync(cancellationToken);
+            startPoint = centroid ?? forestPolygon.Centroid;
+        }
+        else
+        {
+            startPoint = new Point(
+                settings.Rover.StartPosition.DefaultLongitude, 
+                settings.Rover.StartPosition.DefaultLatitude) { SRID = 4326 };
+        }
 
         var position = new RoverPosition(
             initialLat: startPoint.Y,
             initialLon: startPoint.X,
             initialBearing: rng.NextDouble() * 360.0,
             walkSpeed: settings.Rover.Movement.WalkSpeedMps,
-            minLat: bounds.MinY,
-            maxLat: bounds.MaxY,
-            minLon: bounds.MinX,
-            maxLon: bounds.MaxX
+            minLat: envelope.MinY,
+            maxLat: envelope.MaxY,
+            minLon: envelope.MinX,
+            maxLon: envelope.MaxX
         );
 
         Console.WriteLine($"\nStarting rover at: ({position.Latitude:F6}, {position.Longitude:F6})");
-        Console.WriteLine($"Forest bounds: ({bounds.MinX:F6}, {bounds.MinY:F6}) to ({bounds.MaxX:F6}, {bounds.MaxY:F6})");
+        Console.WriteLine($"Forest bounds: ({envelope.MinX:F6}, {envelope.MinY:F6}) to ({envelope.MaxX:F6}, {envelope.MaxY:F6})");
         Console.WriteLine($"Rover speed: {position.WalkSpeedMps} m/s");
 
         // Initialize environment attributes (wind)
@@ -210,12 +258,12 @@ class RoverSimulatorProgram
             // Update rover state
             position.UpdateBearing(rng, meanChange: 0, stdDev: settings.Rover.Movement.BearingStdDev);
             position.UpdatePosition(interval);
-            position.ConstrainToForestBoundary(forestPolygon); // NTS Contains check with gentle correction steps
+            position.ConstrainToForestBoundary(forestPolygon);
 
             // Update environment
             attributes.UpdateWindMeasurements(rng);
 
-            // Create and insert measurement (async/await)
+            // Create and insert measurement
             var measurement = new RoverMeasurement(
                 sessionId,
                 sequenceNumber++,
@@ -246,7 +294,7 @@ class RoverSimulatorProgram
                 attributes.FormatWindInfo()
             );
 
-            // Fixed-rate loop (simple tick scheduling)
+            // Fixed-rate loop
             nextTick += interval;
             var delay = nextTick - sw.Elapsed;
             if (delay > TimeSpan.Zero)
@@ -254,6 +302,19 @@ class RoverSimulatorProgram
             else
                 nextTick = sw.Elapsed;
         }
+    }
+
+    private static string GetSolutionDirectory()
+    {
+        var currentDir = Directory.GetCurrentDirectory();
+        var directory = new DirectoryInfo(currentDir);
+
+        while (directory != null && !directory.GetFiles("*.sln").Any())
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName ?? currentDir;
     }
 
     // GeoPackage file lock helper for Windows users with GIS apps open
