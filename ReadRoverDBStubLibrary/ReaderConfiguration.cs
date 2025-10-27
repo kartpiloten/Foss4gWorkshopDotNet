@@ -39,6 +39,9 @@ public class DatabaseConfiguration
     // Used when DatabaseType == "geopackage" (MapPiloteGeopackageHelper + NTS in the reader)
     public string? GeoPackageFolderPath { get; init; }
 
+    // Path to forest boundary GeoPackage file (e.g., "Solutionresources/RiverHeadForest.gpkg")
+    public string? BoundaryFile { get; init; }
+
     // Connection test settings (simple retry pattern)
     public int ConnectionTimeoutSeconds { get; init; } = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS;
     public int MaxRetryAttempts { get; init; } = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS;
