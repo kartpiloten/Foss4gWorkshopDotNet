@@ -63,40 +63,11 @@ public static class ScentPolygonCalculator
 
         var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
         fan.SRID = 4326;
-
+        // *** Excercise 2 ***
+        // *** Add code here to add a circular buffer around the dog position *** 
         // Small circular buffer around the dog to always include a local detection zone
-        var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
-        var smallBuffer = dogPoint.Buffer(bufferRadiusDegrees); // NTS Buffer: circle approximation in lat/lon degrees
 
-        // Combine fan and buffer (union). Handle common result types simply.
-        Geometry combined;
-        try
-        {
-            combined = fan.Union(smallBuffer);
-        }
-        catch
-        {
-            // If union fails (rare), return the buffer as the safe fallback
-            return smallBuffer as Polygon ?? fan;
-        }
-
-        Polygon finalPolygon = fan; // default fallback
-        if (combined is Polygon p)
-        {
-            finalPolygon = p;
-        }
-        else if (combined is MultiPolygon mp)
-        {
-            // Choose the largest polygon part
-            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
-        }
-        else if (smallBuffer is Polygon pb)
-        {
-            finalPolygon = pb;
-        }
-
-        finalPolygon.SRID = 4326;
-        return finalPolygon;
+        return fan;
     }
 
     /// <summary>

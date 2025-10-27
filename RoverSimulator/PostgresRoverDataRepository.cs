@@ -44,7 +44,7 @@ DROP TABLE IF EXISTS roverdata.rover_measurements;
 
 CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
     id BIGSERIAL PRIMARY KEY,
-    geom geometry(Point, 4326),
+    geom geometry(Point,4326),
     session_id UUID NOT NULL,
     sequence INT NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL,

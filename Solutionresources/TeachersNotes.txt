@@ -1,19 +1,80 @@
-- Vi startar hela övningen med ett motiverande demo av systemet där vi visar 
-
-
-
-
-
+- Vi startar hela övningen med ett motiverande demo av systemet där vi visar programmeet och ser till att alla kan köra det.
 
 
 Övning 1
-Ny rover som levererar Roverpunkter i fel koordinatsystem.
+Nytillverkad rover av en underleverantör (som levererar Roverpunkter i fel koordinatsystem.)
 - Anders kör sin felaktiga rover från sin dator som gör att punkterna hamnar fel.
-- I grundversionen av systemet så är det geografiska objektet typat som Geometry.
+-- I grundversionen av systemet så är det geografiska objektet typat som Geometry.
+Påverkar inte funktionen om rovern skickar rätt srid
+Filen: PostgresRoverDataRepository.cs --> InitializeAsync
+CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
+    id BIGSERIAL PRIMARY KEY,
+    geom geometry(Geometry),
+    session_id UUID NOT NULL,
+    sequence INT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    wind_direction_deg SMALLINT NOT NULL,
+    wind_speed_mps REAL NOT NULL
+);
+-- Gjort search and replace i koden för att ändra koordinatsystemet från 4326 till 4326
+
+Joakim och deltagarna kör frontend 
 - Vi ger deltagarna några minuter att fundera på hur de skulle lösa problemet.
 - Efter det så diskuterar vi deras lösningar och hur vi kan implementera dem i systemet.
+
 Jokaim börjar att ändra typningen till (point, 4326)
+Filen: PostgresRoverDataRepository.cs --> InitializeAsync
+CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
+    id BIGSERIAL PRIMARY KEY,
+    geom geometry(Point, 4326),
+    session_id UUID NOT NULL,
+    sequence INT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    wind_direction_deg SMALLINT NOT NULL,
+    wind_speed_mps REAL NOT NULL
+);
 - Då genereras ett felmeddelande om att koordinatsystemet är ogiltigt.
 - Anders ändrar i sin Rover-konfiguration till rätt koordinatsystem (4326).
 
 Övning 2
+I ursprungsversionen producerar ScentPolygonLibrary endast en "fan"-polygon för varje Roverpunkt.
+I denna övning lägger vi till ett område runt rovern baserat på att hundförare och hund har ett område kring sig
+där de kan upptäcka människor oavsett vindriktning.
+Beräkningen sker i ScentPolygonLibrary i filen ScentPolygonCalculator.cs funktionen CreateScentPolygon.
+Ursprungskoden är:
+        var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
+        fan.SRID = 4326;
+        // *** Excercise 2 ***
+        // *** Add code here to add a circular buffer around the dog position *** 
+        // Small circular buffer around the dog to always include a local detection zone
+
+        return fan;
+
+Uppdaterade koden är:
+        var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
+        fan.SRID = 4326;
+        // *** Excercise 2 ***
+        // *** Add code here to add a circular buffer around the dog position *** 
+        // Small circular buffer around the dog to always include a local detection zone
+        Geometry finalPolygon;
+        var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
+        var smallBuffer = dogPoint.Buffer(bufferRadiusDegrees); // NTS Buffer: circle approximation in lat/lon degrees
+
+        // Combine fan and buffer (union). Handle common result types simply.
+        Geometry finalPolygon;
+        try
+        {
+            finalPolygon = fan.Union(smallBuffer);
+        }
+        catch
+        {
+            // If union fails (rare), return the buffer as the safe fallback
+            return smallBuffer as Polygon ?? fan;
+        }
+        finalPolygon.SRID = 4326;
+        return (Polygon)finalPolygon;
+
