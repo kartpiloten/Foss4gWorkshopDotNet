@@ -1,4 +1,6 @@
 using ReadRoverDBStubLibrary;
+using Microsoft.Extensions.Configuration;
+
 // This project uses top-level statements (C# feature) to keep the sample minimal.
 
 /// <summary>
@@ -14,12 +16,28 @@ Console.WriteLine("This test reads the latest measurement every 2 seconds");
 Console.WriteLine("Make sure RoverSimulator is running to generate new data!");
 Console.WriteLine();
 
-// Create GeoPackage reader
+// Load configuration from appsettings.json
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+    .Build();
+
+// Read configuration from appsettings.json
+var dbSection = configuration.GetSection("DatabaseConfiguration");
 var config = new DatabaseConfiguration
 {
-    DatabaseType = "geopackage",
-    GeoPackageFolderPath = @"C:\temp\Rover1\"
+    DatabaseType = dbSection.GetValue<string>("DatabaseType") ?? "geopackage",
+    GeoPackageFolderPath = dbSection.GetValue<string>("GeoPackageFolderPath") ?? @"C:\temp\Rover1\",
+    PostgresConnectionString = dbSection.GetValue<string>("ConnectionString"),
+    ConnectionTimeoutSeconds = dbSection.GetValue<int?>("ConnectionTimeoutSeconds") ?? 10,
+    MaxRetryAttempts = dbSection.GetValue<int?>("MaxRetryAttempts") ?? 3,
+    RetryDelayMs = dbSection.GetValue<int?>("RetryDelayMs") ?? 2000
 };
+
+Console.WriteLine($"Database Type: {config.DatabaseType}");
+Console.WriteLine($"Configuration loaded from appsettings.json");
+Console.WriteLine();
+
 // GeoPackage is an OGC FOSS4G standard for storing spatial data in a SQLite file.
 
 using var reader = RoverDataReaderFactory.CreateReader(config);
@@ -46,7 +64,10 @@ if (totalCount > 0)
 }
 
 Console.WriteLine();
-Console.WriteLine("Starting continuous monitoring...");
+
+// Read display interval from config
+var displayIntervalMs = configuration.GetValue<int?>("Tester:DisplayUpdateIntervalMs") ?? 2000;
+Console.WriteLine($"Starting continuous monitoring (update every {displayIntervalMs}ms)...");
 Console.WriteLine("Press Ctrl+C to stop");
 Console.WriteLine();
 Console.WriteLine($"{"Time",-12} {"Sequence",-10} {"Latitude",-12} {"Longitude",-12} {"Wind Speed",-12} {"Wind Dir",-10}");
@@ -54,7 +75,7 @@ Console.WriteLine(new string('-', 80));
 
 int previousSequence = -1;
 
-// Poll every 2 seconds
+// Poll at configured interval
 while (true)
 {
     try
@@ -83,12 +104,12 @@ while (true)
             Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff,-12} NO DATA");
         }
         
-        await Task.Delay(2000); // Asynchronously wait 2 seconds between polls
+        await Task.Delay(displayIntervalMs); // Asynchronously wait between polls
     }
     catch (Exception ex)
     {
         // Keep error handling minimal to avoid noise while still surfacing issues
         Console.WriteLine($"ERROR: {ex.Message}");
-        await Task.Delay(2000);
+        await Task.Delay(displayIntervalMs);
     }
 }

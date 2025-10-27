@@ -78,3 +78,4 @@ Uppdaterade koden är:
         finalPolygon.SRID = 4326;
         return (Polygon)finalPolygon;
 
+Övning 3
