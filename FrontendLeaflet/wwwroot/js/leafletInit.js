@@ -5,7 +5,7 @@ console.log('Loading Rover Tracker (Leaflet single trail mode)...');
 
 let roverTrailPolyline = null;
 let roverTrailCoords = []; // Persist coordinates client-side
-let lastTrailPointCount = 0;
+let lastTrailTimestamp = null; // Track the last point's timestamp instead of count
 
 window.initLeafletMap = async function() {
     console.log('Initializing Leaflet map (trail only)...');
@@ -32,7 +32,7 @@ window.initLeafletMap = async function() {
     // Add OpenStreetMap tiles
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-        attribution: '� OpenStreetMap'
+        attribution: '� OpenStreetMap'
     }).addTo(map);
 
     // Create map layers
@@ -82,28 +82,34 @@ window.initLeafletMap = async function() {
     async function loadInitialTrail() {
         try {
             console.log('Loading initial rover trail...');
-            const response = await fetch('/api/rover-trail?limit=5000'); // big number; server limits if needed
+            const response = await fetch('/api/rover-trail'); // Get all points initially
             if (!response.ok) return;
             
             const geo = await response.json();
             
             if (!geo.features?.length) {
-                console.log('? No trail features returned');
+                console.log('⚠ No trail features returned');
                 return;
             }
             
             const ls = geo.features[0];
             
             if (ls.geometry?.type !== 'LineString') {
-                console.log('? Trail geometry is not a LineString:', ls.geometry?.type);
+                console.log('⚠ Trail geometry is not a LineString:', ls.geometry?.type);
                 return;
             }
             
             roverTrailCoords = ls.geometry.coordinates.map(c => [c[1], c[0]]); // Leaflet uses [lat,lng]
             
-            console.log(`?? Trail coordinates loaded: ${roverTrailCoords.length} points`);
-            console.log(`?? First point: [${roverTrailCoords[0]}]`);
-            console.log(`?? Last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
+            console.log(`✓✓ Trail coordinates loaded: ${roverTrailCoords.length} points`);
+            console.log(`✓✓ First point: [${roverTrailCoords[0]}]`);
+            console.log(`✓✓ Last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
+            
+            // Store the timestamp of the last point
+            if (ls.properties?.endTime) {
+                lastTrailTimestamp = ls.properties.endTime;
+                console.log(`✓✓ Last timestamp: ${lastTrailTimestamp}`);
+            }
             
             // Create the polyline for the rover trail
             roverTrailPolyline = L.polyline(roverTrailCoords, {
@@ -112,23 +118,30 @@ window.initLeafletMap = async function() {
                 opacity: 0.85
             }).addTo(map);
             
-            lastTrailPointCount = roverTrailCoords.length;
-            
-            console.log(`? Initial trail loaded (${lastTrailPointCount} points)`);
+            console.log(`✓ Initial trail loaded (${roverTrailCoords.length} points)`);
         } catch (e) {
-            console.log('? Trail init failed', e);
+            console.log('✗ Trail init failed', e);
         }
     }
 
     async function appendNewTrailPoints() {
         try {
-            // Fetch the latest trail points (reuse /api/rover-trail for now)
-            const response = await fetch('/api/rover-trail?limit=5000');
+            // If we don't have a timestamp yet, skip (initial load not complete)
+            if (!lastTrailTimestamp) {
+                console.log('⚠ No timestamp yet, skipping update');
+                return;
+            }
+            
+            // Fetch only points after the last known timestamp
+            const response = await fetch(`/api/rover-trail?after=${encodeURIComponent(lastTrailTimestamp)}`);
             if (!response.ok) return;
             
             const geo = await response.json();
             
-            if (!geo.features?.length) return;
+            if (!geo.features?.length) {
+                console.log('✓✓ No new trail features');
+                return;
+            }
             
             const ls = geo.features[0];
             
@@ -136,29 +149,31 @@ window.initLeafletMap = async function() {
             
             const coords = ls.geometry.coordinates.map(c => [c[1], c[0]]);
             
-            console.log(`?? Checking for new points: current=${lastTrailPointCount}, fetched=${coords.length}`);
-            
-            if (coords.length <= lastTrailPointCount) {
-                console.log('?? No new points to add');
-                return; // nothing new
+            if (coords.length === 0) {
+                console.log('✓✓ No new points to add');
+                return;
             }
 
-            // Add new points to the existing trail
-            const newSeg = coords.slice(lastTrailPointCount); // new tail points
-            console.log(`? Adding ${newSeg.length} new points to trail`);
-            roverTrailCoords.push(...newSeg);
-            lastTrailPointCount = coords.length;
+            // Add all new points to the existing trail
+            console.log(`✓ Adding ${coords.length} new points to trail`);
+            roverTrailCoords.push(...coords);
+            
+            // Update timestamp to the latest
+            if (ls.properties?.endTime) {
+                lastTrailTimestamp = ls.properties.endTime;
+                console.log(`✓✓ Updated timestamp to: ${lastTrailTimestamp}`);
+            }
             
             // Update the polyline with new coordinates
             if (roverTrailPolyline) {
                 roverTrailPolyline.setLatLngs(roverTrailCoords);
-                console.log(`? Trail updated. Total points: ${lastTrailPointCount}`);
-                console.log(`?? New last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
+                console.log(`✓ Trail updated. Total points: ${roverTrailCoords.length}`);
+                console.log(`✓✓ New last point: [${roverTrailCoords[roverTrailCoords.length - 1]}]`);
             } else {
-                console.log('? Trail polyline is null!');
+                console.log('✗ Trail polyline is null!');
             }
         } catch (e) {
-            console.log('? Append trail failed', e);
+            console.log('✗ Append trail failed', e);
         }
     }
 
@@ -190,7 +205,7 @@ window.initLeafletMap = async function() {
                 <span style="font-size: 1.8em;">Seq: ${stats.latestSequence}<br/>
                 Wind: ${p.windSpeed} m/s<br/>
                 Direction: ${p.windDirection} degrees<br/>
-                Points: ${lastTrailPointCount}</span>
+                Points: ${roverTrailCoords.length}</span>
             `);
             
             // Permanent tooltip label with wind info - TWO ROWS, DOUBLED SIZE

@@ -7,7 +7,7 @@ let map = null;
 let roverTrailSource = null;
 let roverTrailFeature = null;
 let roverTrailCoords = []; // Persist coordinates client-side
-let lastTrailPointCount = 0;
+let lastTrailTimestamp = null; // Track the last point's timestamp instead of count
 
 window.initOpenLayersMap = async function() {
     console.log('Initializing OpenLayers map (trail only)...');
@@ -180,7 +180,7 @@ window.initOpenLayersMap = async function() {
     async function loadInitialTrail() {
         try {
             console.log('??? Loading initial rover trail...');
-            const response = await fetch('/api/rover-trail?limit=5000');
+            const response = await fetch('/api/rover-trail'); // Get all points initially
             if (!response.ok) return;
             
             const geo = await response.json();
@@ -196,6 +196,12 @@ window.initOpenLayersMap = async function() {
                 ol.proj.fromLonLat([c[0], c[1]])
             );
             
+            // Store the timestamp of the last point
+            if (ls.properties?.endTime) {
+                lastTrailTimestamp = ls.properties.endTime;
+                console.log(`✓✓ Last timestamp: ${lastTrailTimestamp}`);
+            }
+            
             // Create the line feature
             roverTrailFeature = new ol.Feature({
                 geometry: new ol.geom.LineString(roverTrailCoords)
@@ -203,9 +209,7 @@ window.initOpenLayersMap = async function() {
             
             roverTrailSource.addFeature(roverTrailFeature);
             
-            lastTrailPointCount = ls.geometry.coordinates.length;
-            
-            console.log(`? Initial trail loaded (${lastTrailPointCount} points)`);
+            console.log(`? Initial trail loaded (${roverTrailCoords.length} points)`);
         } catch (e) {
             console.log('? Trail init failed', e);
         }
@@ -213,12 +217,22 @@ window.initOpenLayersMap = async function() {
 
     async function appendNewTrailPoints() {
         try {
-            const response = await fetch('/api/rover-trail?limit=5000');
+            // If we don't have a timestamp yet, skip (initial load not complete)
+            if (!lastTrailTimestamp) {
+                console.log('⚠ No timestamp yet, skipping update');
+                return;
+            }
+            
+            // Fetch only points after the last known timestamp
+            const response = await fetch(`/api/rover-trail?after=${encodeURIComponent(lastTrailTimestamp)}`);
             if (!response.ok) return;
             
             const geo = await response.json();
             
-            if (!geo.features?.length) return;
+            if (!geo.features?.length) {
+                console.log('✓✓ No new trail features');
+                return;
+            }
             
             const ls = geo.features[0];
             
@@ -226,24 +240,32 @@ window.initOpenLayersMap = async function() {
             
             const coords = ls.geometry.coordinates;
             
-            if (coords.length <= lastTrailPointCount) return; // nothing new
+            if (coords.length === 0) {
+                console.log('✓✓ No new points to add');
+                return;
+            }
 
             // Add new points to the existing trail
-            const newPoints = coords.slice(lastTrailPointCount).map(c => 
+            const newPoints = coords.map(c => 
                 ol.proj.fromLonLat([c[0], c[1]])
             );
             
+            console.log(`✓ Adding ${newPoints.length} new points to trail`);
             roverTrailCoords.push(...newPoints);
-            lastTrailPointCount = coords.length;
+            
+            // Update timestamp to the latest
+            if (ls.properties?.endTime) {
+                lastTrailTimestamp = ls.properties.endTime;
+                console.log(`✓✓ Updated timestamp to: ${lastTrailTimestamp}`);
+            }
             
             // Update the geometry with new coordinates
             if (roverTrailFeature) {
                 roverTrailFeature.getGeometry().setCoordinates(roverTrailCoords);
+                console.log(`✓ Trail updated. Total points: ${roverTrailCoords.length}`);
             }
-            
-            console.log(`? Trail extended. Total points: ${lastTrailPointCount}`);
         } catch (e) {
-            console.log('? Append trail failed', e);
+            console.log('✗ Append trail failed', e);
         }
     }
 
@@ -270,7 +292,7 @@ window.initOpenLayersMap = async function() {
                 <span style="font-size: 1.8em;">Seq: ${stats.latestSequence}<br/>
                 Wind: ${p.windSpeed} m/s<br/>
                 Direction: ${p.windDirection} degrees<br/>
-                Points: ${lastTrailPointCount}</span>
+                Points: ${roverTrailCoords.length}</span>
             `;
             
             marker.set('popupContent', popupContent);

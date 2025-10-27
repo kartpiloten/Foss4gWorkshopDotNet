@@ -200,7 +200,8 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
 });
 
 // NEW: Rover trail as a single LineString for better performance with many points
-app.MapGet("/api/rover-trail", async (IRoverDataReader reader, int? limit = 500) =>
+// If 'after' timestamp is provided, only returns points after that time
+app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = null) =>
 {
     try
     {
@@ -209,11 +210,18 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, int? limit = 500)
         if (!measurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });
         
-        // Get limited measurements for the trail
-        var limitedMeasurements = measurements
-            .OrderBy(m => m.Sequence)
-            .TakeLast(limit ?? 500)
-            .ToList();
+        // Filter by timestamp if 'after' parameter is provided
+        var filteredMeasurements = measurements.OrderBy(m => m.Sequence);
+        
+        if (!string.IsNullOrEmpty(after) && DateTime.TryParse(after, out var afterTime))
+        {
+            filteredMeasurements = filteredMeasurements.Where(m => m.RecordedAt > afterTime).OrderBy(m => m.Sequence);
+        }
+        
+        var limitedMeasurements = filteredMeasurements.ToList();
+        
+        if (!limitedMeasurements.Any())
+            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
         
         // Create a LineString from the coordinates
         var coordinates = limitedMeasurements
@@ -227,9 +235,9 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, int? limit = 500)
             {
                 name = "Rover Trail",
                 pointCount = limitedMeasurements.Count,
-                totalPoints = measurements.Count,
-                startTime = limitedMeasurements.First().RecordedAt.ToString("HH:mm:ss"),
-                endTime = limitedMeasurements.Last().RecordedAt.ToString("HH:mm:ss")
+                totalPoints = measurements.Count(),
+                startTime = limitedMeasurements.First().RecordedAt.ToString("o"),
+                endTime = limitedMeasurements.Last().RecordedAt.ToString("o")
             },
             geometry = new
             {
