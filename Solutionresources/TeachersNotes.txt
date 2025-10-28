@@ -71,3 +71,100 @@ Uppdaterade koden är:
         return (Polygon)finalPolygon;
 
 Övning 3
+Frontend: Utöka statistik-komponenten med rover-data och GIS-beräkningar
+
+Mål: Utöka den befintliga Blazor-komponenten ForestCoveragePie.razor med:
+- Total distans som rovern färdats (beräknad med Haversine-formeln)
+- Medel/min/max vindhastighet från alla mätpunkter
+
+Fil att ändra: FrontendLeaflet/Components/ForestCoveragePie.razor
+
+Steg 1: Injicera IRoverDataReader i komponenten
+Lägg till längst upp:
+@inject ReadRoverDBStubLibrary.IRoverDataReader RoverReader
+
+Steg 2: Lägg till nya privata fält i @code-sektionen:
+    private double _totalDistanceKm = 0;
+    private double _avgWindSpeed = 0;
+    private double _minWindSpeed = 0;
+    private double _maxWindSpeed = 0;
+
+Steg 3: Skapa en metod för Haversine-beräkning:
+    private double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371; // Jordens radie i km
+        var dLat = (lat2 - lat1) * Math.PI / 180.0;
+        var dLon = (lon2 - lon1) * Math.PI / 180.0;
+        
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        
+        var c = 2 * Math.Asin(Math.Sqrt(a));
+        return R * c;
+    }
+
+Steg 4: Skapa en async metod för att uppdatera rover-statistik:
+    private async Task UpdateRoverStatistics()
+    {
+        try
+        {
+            var measurements = await RoverReader.GetAllMeasurementsAsync();
+            var ordered = measurements.OrderBy(m => m.Sequence).ToList();
+            
+            if (!ordered.Any()) return;
+            
+            // Beräkna total distans
+            _totalDistanceKm = 0;
+            for (int i = 1; i < ordered.Count; i++)
+            {
+                _totalDistanceKm += CalculateHaversineDistance(
+                    ordered[i-1].Latitude, ordered[i-1].Longitude,
+                    ordered[i].Latitude, ordered[i].Longitude);
+            }
+            
+            // Beräkna vindstatistik
+            _avgWindSpeed = ordered.Average(m => m.WindSpeedMps);
+            _minWindSpeed = ordered.Min(m => m.WindSpeedMps);
+            _maxWindSpeed = ordered.Max(m => m.WindSpeedMps);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating rover statistics: {ex.Message}");
+        }
+    }
+
+Steg 5: Anropa UpdateRoverStatistics från OnForestCoverageUpdated:
+    private void OnForestCoverageUpdated(object? sender, ScentPolygonLibrary.ForestCoverageEventArgs e)
+    {
+        _searchedAreaM2 = e.SearchedAreaM2;
+        _forestAreaM2 = e.ForestAreaM2;
+        _percentage = e.PercentageSearched;
+        
+        if (_percentage > 100) _percentage = 100;
+        
+        // Uppdatera även rover-statistik
+        _ = UpdateRoverStatistics(); // Fire-and-forget
+        
+        InvokeAsync(StateHasChanged);
+    }
+
+Steg 6: Lägg till nya rader i HTML-sektionen efter "Searched":
+        <div class="info-row">
+            <span class="info-label">Total Distance:</span>
+            <span class="info-value">@_totalDistanceKm.ToString("F2") km</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Avg Wind:</span>
+            <span class="info-value">@_avgWindSpeed.ToString("F1") m/s</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Min/Max Wind:</span>
+            <span class="info-value">@_minWindSpeed.ToString("F1") / @_maxWindSpeed.ToString("F1") m/s</span>
+        </div>
+
+Diskussionspunkter:
+- Varför använder vi Haversine istället för Pythagoras? (Jordens krökning)
+- Är beräkningen exakt? (Nej, approximation - jordens avplattning, elevationsförändringar)
+- Prestanda: Hur många punkter kan vi hantera innan beräkningen tar för lång tid?
+- Alternativ: Skulle vi kunna beräkna distansen i databasen med PostGIS ST_Distance?
