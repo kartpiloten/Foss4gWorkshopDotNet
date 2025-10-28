@@ -60,21 +60,13 @@ Uppdaterade koden är:
         // *** Excercise 2 ***
         // *** Add code here to add a circular buffer around the dog position *** 
         // Small circular buffer around the dog to always include a local detection zone
-        Geometry finalPolygon;
         var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
         var smallBuffer = dogPoint.Buffer(bufferRadiusDegrees); // NTS Buffer: circle approximation in lat/lon degrees
 
         // Combine fan and buffer (union). Handle common result types simply.
-        Geometry finalPolygon;
-        try
-        {
-            finalPolygon = fan.Union(smallBuffer);
-        }
-        catch
-        {
-            // If union fails (rare), return the buffer as the safe fallback
-            return smallBuffer as Polygon ?? fan;
-        }
+
+        Geometry finalPolygon = fan.Union(smallBuffer);
+  
         finalPolygon.SRID = 4326;
         return (Polygon)finalPolygon;
 
