@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
     wind_direction_deg SMALLINT NOT NULL,
     wind_speed_mps REAL NOT NULL
 );
--- Gjort search and replace i koden för att ändra koordinatsystemet från 4326 till 4326
+-- Gjort search and replace i koden för att ändra koordinatsystemet från 4326 till 3006
 
 Joakim och deltagarna kör frontend 
 - Vi ger deltagarna några minuter att fundera på hur de skulle lösa problemet.
