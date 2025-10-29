@@ -1,0 +1,130 @@
+@* The functionallity in this file is:
+   - Encapsulate Leaflet map interaction via JavaScript Interop (IJSRuntime)
+   - Provide async methods to update trail, coverage, position from C#
+   - Use binary data transfer (float[]) for performance with large datasets
+   - Reuse map layers to avoid recreating geometries
+*@
+
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="@Id" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1; background: #dcdcdc;"></div>
+
+@code {
+    /* The functionallity in this file is:
+     - Provides a Blazor component wrapper around Leaflet.js map
+     - Uses JavaScript Interop with binary data (float[]) for efficient coordinate transfer
+     - Maintains map state and allows incremental updates (append trail, update coverage)
+     - Properly disposes JS module resources
+    */
+
+    [Parameter]
+    public string Id { get; set; } = $"map-{Guid.NewGuid():N}";
+
+    private IJSObjectReference? _module;
+    private bool _initialized = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Import JS module (ES6 module with dynamic import)
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/scent-map.js");
+                
+                // Initialize the Leaflet map
+                await _module.InvokeVoidAsync("initMap", Id);
+                _initialized = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing map: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Update the complete rover trail (replaces existing trail)
+    /// </summary>
+    public async Task UpdateTrailAsync(NetTopologySuite.Geometries.LineString trail)
+    {
+        if (!_initialized || _module == null || trail == null) return;
+
+        try
+        {
+            var coords = trail.Coordinates.ToFloatArray();
+            await _module.InvokeVoidAsync("updateTrail", Id, coords);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating trail: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Update the coverage polygon (replaces existing coverage)
+    /// </summary>
+    public async Task UpdateCoverageAsync(NetTopologySuite.Geometries.Polygon coverage)
+    {
+        if (!_initialized || _module == null || coverage == null) return;
+
+        try
+        {
+            // Use exterior ring for polygon
+            var coords = coverage.ExteriorRing.Coordinates.ToFloatArray();
+            await _module.InvokeVoidAsync("updateCoverage", Id, coords);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating coverage: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Update the rover position marker with wind info
+    /// </summary>
+    public async Task UpdatePositionAsync(NetTopologySuite.Geometries.Point position, float windSpeed, short windDirection)
+    {
+        if (!_initialized || _module == null || position == null) return;
+
+        try
+        {
+            await _module.InvokeVoidAsync("updatePosition", Id, position.X, position.Y, windSpeed, windDirection);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating position: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Append new coordinates to existing trail (incremental update for performance)
+    /// </summary>
+    public async Task AppendTrailCoordsAsync(NetTopologySuite.Geometries.Coordinate[] newCoords)
+    {
+        if (!_initialized || _module == null || newCoords == null || newCoords.Length == 0) return;
+
+        try
+        {
+            var coords = newCoords.ToFloatArray();
+            await _module.InvokeVoidAsync("appendTrail", Id, coords);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error appending trail: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module != null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+}

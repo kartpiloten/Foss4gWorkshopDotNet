@@ -1,16 +1,18 @@
+@* The functionallity in this file is:
+   - Main page for rover tracking with DI-based data access
+   - Use ScentMap component with C#-driven updates via Timer
+   - Load initial data once, then poll for incremental updates
+   - Direct access to IRoverDataReader and ScentPolygonService
+*@
+
 @page "/"
+@using NetTopologySuite.Geometries
+@inject IRoverDataReader Reader
+@inject ScentPolygonService ScentService
 @inject IJSRuntime JS
+@implements IDisposable
 
-<!-- Correct static file reference (remove ~ which isn't resolved in .razor link tags) -->
 <link href="css/fullscreen-map.css" rel="stylesheet" />
-
-<!-- Fallback inline critical styles to ensure map always has size even if external CSS fails to load -->
-<style>
-    #map { position: fixed; inset: 0; width:100vw; height:100vh; z-index:1; background:#dcdcdc; }
-</style>
-
-<!-- Fullscreen map -->
-<div id="map"></div>
 
 <!-- Overlay UI -->
 <div class="overlay-top-left">
@@ -22,69 +24,155 @@
 {
     <div class="overlay-error">Error: @_error</div>
 }
-@if (!string.IsNullOrEmpty(_debugInfo))
-{
-    <div class="overlay-debug">@_debugInfo</div>
-}
+
+<!-- ScentMap component -->
+<ScentMap @ref="_map" />
 
 @code {
+    private ScentMap? _map;
+    private Timer? _timer;
     private string? _error;
-    private string? _debugInfo;
+    private int _lastSequence = -1;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender)
-            await InitializeMapWithRetryAsync();
+        try
+        {
+            // Load initial data
+            await LoadInitialDataAsync();
+            
+            // Start timer for incremental updates (8 seconds)
+            _timer = new Timer(async _ => await LoadIncrementalDataAsync(), null, 8000, 8000);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Initialization failed: {ex.Message}";
+            Console.WriteLine($"Error in OnInitializedAsync: {ex}");
+        }
     }
 
-    private async Task InitializeMapWithRetryAsync()
+    private async Task LoadInitialDataAsync()
     {
-        const int maxRetries = 5;
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        try
         {
-            try
+            // Get all measurements and create trail
+            var measurements = await Reader.GetAllMeasurementsAsync();
+            
+            if (measurements.Any())
             {
-                _debugInfo = $"Initializing map... ({attempt}/{maxRetries})";
-                StateHasChanged();
-                await Task.Delay(300 * attempt);
-
-                var leafletAvailable = await JS.InvokeAsync<bool>("eval", "typeof L !== 'undefined'");
-                if (!leafletAvailable)
+                // Create LineString from all measurements
+                var coordinates = measurements
+                    .OrderBy(m => m.Sequence)
+                    .Select(m => m.Geometry.Coordinate)
+                    .ToArray();
+                
+                var lineString = new LineString(coordinates);
+                
+                // Update trail on map
+                if (_map != null)
                 {
-                    if (attempt == maxRetries) _error = "Leaflet library failed to load";
-                    continue;
+                    await _map.UpdateTrailAsync(lineString);
                 }
+                
+                // Update last sequence
+                _lastSequence = measurements.Max(m => m.Sequence);
+                
+                Console.WriteLine($"Initial trail loaded: {coordinates.Length} points");
+            }
 
-                var fnAvailable = await JS.InvokeAsync<bool>("eval", "typeof window.initLeafletMap === 'function'");
-                if (!fnAvailable)
-                {
-                    if (attempt == maxRetries)
-                    {
-                        _error = "Map initialization function not found";
-                        await TryLoadScriptManuallyAsync();
-                    }
-                    continue;
-                }
+            // Get unified scent polygon
+            var unified = ScentService.GetUnifiedScentPolygonCached();
+            if (unified != null && _map != null)
+            {
+                await _map.UpdateCoverageAsync(unified.Polygon);
+                Console.WriteLine($"Coverage loaded: {unified.PolygonCount} polygons, {unified.TotalAreaM2:F0} m²");
+            }
 
-                await JS.InvokeVoidAsync("initLeafletMap");
-                _debugInfo = null; _error = null; StateHasChanged();
+            // Get latest position
+            var latest = await Reader.GetLatestMeasurementAsync();
+            if (latest != null && _map != null)
+            {
+                await _map.UpdatePositionAsync(latest.Geometry, latest.WindSpeedMps, latest.WindDirectionDeg);
+                Console.WriteLine($"Position loaded: seq {latest.Sequence}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load initial data: {ex.Message}";
+            Console.WriteLine($"Error in LoadInitialDataAsync: {ex}");
+        }
+    }
+
+    private async Task LoadIncrementalDataAsync()
+    {
+        try
+        {
+            // Check if there's new data
+            RoverMeasurement? latest = await Reader.GetLatestMeasurementAsync();
+            
+            if (latest == null || latest.Sequence <= _lastSequence)
+            {
+                // No new data, but still update coverage and position
+                await UpdateCoverageAndPositionAsync();
                 return;
             }
-            catch (Exception ex)
+
+            // Get new measurements since last sequence
+            var newMeasurements = await Reader.GetNewMeasurementsAsync(_lastSequence);
+            
+            if (newMeasurements.Any() && _map != null)
             {
-                if (attempt == maxRetries) _error = ex.Message;
+                // Append new coordinates to trail
+                var newCoords = newMeasurements
+                    .OrderBy(m => m.Sequence)
+                    .Select(m => m.Geometry.Coordinate)
+                    .ToArray();
+                
+                await _map.AppendTrailCoordsAsync(newCoords);
+                
+                // Update last sequence
+                _lastSequence = newMeasurements.Max(m => m.Sequence);
+                
+                Console.WriteLine($"Appended {newCoords.Length} new points to trail (total seq: {_lastSequence})");
             }
+
+            // Always update coverage and position
+            await UpdateCoverageAndPositionAsync();
         }
-        StateHasChanged();
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in LoadIncrementalDataAsync: {ex.Message}");
+        }
     }
 
-    private async Task TryLoadScriptManuallyAsync()
+    private async Task UpdateCoverageAndPositionAsync()
     {
-        var load = @"return new Promise((resolve,reject)=>{if (typeof window.initLeafletMap==='function'){resolve(true);return;}const s=document.createElement('script');s.src='js/leafletInit.js';s.onload=()=>setTimeout(()=>typeof window.initLeafletMap==='function'?resolve(true):reject(),120);s.onerror=()=>reject();document.head.appendChild(s);});";
-        if (await JS.InvokeAsync<bool>("eval", load))
+        if (_map == null) return;
+
+        try
         {
-            await JS.InvokeVoidAsync("initLeafletMap");
-            _error = null; _debugInfo = null;
+            // Update unified coverage
+            var unified = ScentService.GetUnifiedScentPolygonCached();
+            if (unified != null)
+            {
+                await _map.UpdateCoverageAsync(unified.Polygon);
+            }
+
+            // Update latest position
+            var latest = await Reader.GetLatestMeasurementAsync();
+            if (latest != null)
+            {
+                await _map.UpdatePositionAsync(latest.Geometry, latest.WindSpeedMps, latest.WindDirectionDeg);
+            }
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating coverage/position: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
     }
 }
