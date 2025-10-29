@@ -179,8 +179,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                 ["session_id"] = "TEXT NOT NULL",
                 ["sequence"] = "INTEGER NOT NULL",
                 ["recorded_at"] = "TEXT NOT NULL", 
-                ["latitude"] = "REAL NOT NULL",
-                ["longitude"] = "REAL NOT NULL",
                 ["wind_direction_deg"] = "INTEGER NOT NULL",
                 ["wind_speed_mps"] = "REAL NOT NULL"
             };
@@ -255,8 +253,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                     ["session_id"] = measurement.SessionId.ToString(),
                     ["sequence"] = measurement.Sequence.ToString(CultureInfo.InvariantCulture),
                     ["recorded_at"] = measurement.RecordedAt.ToString("O"),
-                    ["latitude"] = measurement.Latitude.ToString("F8", CultureInfo.InvariantCulture),
-                    ["longitude"] = measurement.Longitude.ToString("F8", CultureInfo.InvariantCulture),
+                    // Coordinates are stored in the feature geometry (Point). Do not duplicate as attributes.
                     ["wind_direction_deg"] = measurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
                     ["wind_speed_mps"] = measurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture)
                 }
@@ -294,8 +291,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                     ["session_id"] = measurement.SessionId.ToString(),
                     ["sequence"] = measurement.Sequence.ToString(CultureInfo.InvariantCulture),
                     ["recorded_at"] = measurement.RecordedAt.ToString("O"),
-                    ["latitude"] = measurement.Latitude.ToString("F8", CultureInfo.InvariantCulture),
-                    ["longitude"] = measurement.Longitude.ToString("F8", CultureInfo.InvariantCulture),
+                    // Coordinates are stored in the feature geometry (Point). Do not duplicate as attributes.
                     ["wind_direction_deg"] = measurement.WindDirectionDeg.ToString(CultureInfo.InvariantCulture),
                     ["wind_speed_mps"] = measurement.WindSpeedMps.ToString("F2", CultureInfo.InvariantCulture)
                 }
@@ -348,8 +344,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
             var sessionId = Guid.Parse(feature.Attributes["session_id"] ?? throw new InvalidDataException("Missing session_id"));
             var sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture);
             var recordedAt = DateTimeOffset.Parse(feature.Attributes["recorded_at"] ?? throw new InvalidDataException("Missing recorded_at"));
-            var latitude = double.Parse(feature.Attributes["latitude"] ?? "0", CultureInfo.InvariantCulture);
-            var longitude = double.Parse(feature.Attributes["longitude"] ?? "0", CultureInfo.InvariantCulture);
             var windDirection = short.Parse(feature.Attributes["wind_direction_deg"] ?? "0", CultureInfo.InvariantCulture);
             var windSpeed = float.Parse(feature.Attributes["wind_speed_mps"] ?? "0", CultureInfo.InvariantCulture);
 
@@ -363,8 +357,6 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
                 sessionId,
                 sequence,
                 recordedAt,
-                latitude,
-                longitude,
                 windDirection,
                 windSpeed,
                 point

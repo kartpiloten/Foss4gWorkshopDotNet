@@ -54,8 +54,10 @@ public record RoverMeasurement(
     Guid SessionId,
     int Sequence,
     DateTimeOffset RecordedAt,
-    double Latitude,
-    double Longitude,
     short WindDirectionDeg,
     float WindSpeedMps,
-    Point Geometry);
+    Point Geometry)
+{
+    public double Latitude => Geometry?.Y ?? double.NaN;
+    public double Longitude => Geometry?.X ?? double.NaN;
+}

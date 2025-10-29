@@ -268,8 +268,6 @@ class RoverSimulatorProgram
                 sessionId,
                 sequenceNumber++,
                 now,
-                position.Latitude,
-                position.Longitude,
                 attributes.GetWindDirectionAsShort(),
                 attributes.GetWindSpeedAsFloat(),
                 position.ToGeometry()
@@ -442,12 +440,22 @@ class RoverSimulatorProgram
                 await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
                 {
                     var sequence = feature.Attributes["sequence"];
-                    var latitude = feature.Attributes["latitude"];
-                    var longitude = feature.Attributes["longitude"];
+                    string latStr = "?", lonStr = "?";
+                    if (feature.Geometry is NetTopologySuite.Geometries.Point p)
+                    {
+                        latStr = p.Y.ToString("F6");
+                        lonStr = p.X.ToString("F6");
+                    }
+                    else
+                    {
+                        latStr = feature.Attributes["latitude"] ?? "?";
+                        lonStr = feature.Attributes["longitude"] ?? "?";
+                    }
+
                     var windSpeed = feature.Attributes["wind_speed_mps"];
                     var windDir = feature.Attributes["wind_direction_deg"];
 
-                    Console.WriteLine($"  {++count}. Seq: {sequence}, Location: ({latitude?[..8]}, {longitude?[..8]}), Wind: {windSpeed}m/s @ {windDir}deg");
+                    Console.WriteLine($"  {++count}. Seq: {sequence}, Location: ({latStr}, {lonStr}), Wind: {windSpeed}m/s @ {windDir}deg");
                 }
 
                 Console.WriteLine($"\nGeoPackage verification successful! The file contains {totalCount} rover measurements.");

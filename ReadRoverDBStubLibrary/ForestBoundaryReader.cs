@@ -75,15 +75,23 @@ public class ForestBoundaryReader : IDisposable
     /// <summary>
     /// Checks if a point is inside the forest boundary.
     /// </summary>
-    public async Task<bool> IsPointInBoundaryAsync(double latitude, double longitude, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Checks if a point (geometry) is inside the forest boundary.
+    /// </summary>
+    public async Task<bool> IsPointInBoundaryAsync(Point point, CancellationToken cancellationToken = default)
     {
         var boundary = await GetBoundaryPolygonAsync(cancellationToken);
-        if (boundary == null)
+        if (boundary == null || point == null)
             return false;
 
-        var point = new Point(longitude, latitude) { SRID = 4326 };
         return boundary.Contains(point);
     }
+
+    /// <summary>
+    /// Backwards-compatible overload that accepts latitude/longitude and converts to a Point.
+    /// </summary>
+    public Task<bool> IsPointInBoundaryAsync(double latitude, double longitude, CancellationToken cancellationToken = default)
+        => IsPointInBoundaryAsync(new Point(longitude, latitude) { SRID = 4326 }, cancellationToken);
 
     /// <summary>
     /// Gets the bounding box of the forest boundary.

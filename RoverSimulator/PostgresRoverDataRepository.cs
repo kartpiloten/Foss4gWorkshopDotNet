@@ -48,8 +48,6 @@ CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
     session_id UUID NOT NULL,
     sequence INT NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
     wind_direction_deg SMALLINT NOT NULL,
     wind_speed_mps REAL NOT NULL
 );
@@ -73,15 +71,13 @@ CREATE INDEX IF NOT EXISTS ix_rover_measurements_geom
             // Prepare reusable insert command
             const string insertSql = @"
 INSERT INTO roverdata.rover_measurements
-(session_id, sequence, recorded_at, latitude, longitude, wind_direction_deg, wind_speed_mps, geom)
-VALUES (@session_id, @sequence, @recorded_at, @latitude, @longitude, @wind_direction_deg, @wind_speed_mps, @geom);";
+(session_id, sequence, recorded_at, wind_direction_deg, wind_speed_mps, geom)
+VALUES (@session_id, @sequence, @recorded_at, @wind_direction_deg, @wind_speed_mps, @geom);";
 
             _insertCommand = new NpgsqlCommand(insertSql, _connection);
             _insertCommand.Parameters.Add("@session_id", NpgsqlDbType.Uuid);
             _insertCommand.Parameters.Add("@sequence", NpgsqlDbType.Integer);
             _insertCommand.Parameters.Add("@recorded_at", NpgsqlDbType.TimestampTz);
-            _insertCommand.Parameters.Add("@latitude", NpgsqlDbType.Double);
-            _insertCommand.Parameters.Add("@longitude", NpgsqlDbType.Double);
             _insertCommand.Parameters.Add("@wind_direction_deg", NpgsqlDbType.Smallint);
             _insertCommand.Parameters.Add("@wind_speed_mps", NpgsqlDbType.Real);
             _insertCommand.Parameters.Add("@geom", NpgsqlDbType.Geometry);
@@ -188,8 +184,6 @@ VALUES (@session_id, @sequence, @recorded_at, @latitude, @longitude, @wind_direc
             _insertCommand.Parameters["@session_id"].Value = measurement.SessionId;
             _insertCommand.Parameters["@sequence"].Value = measurement.Sequence;
             _insertCommand.Parameters["@recorded_at"].Value = measurement.RecordedAt;
-            _insertCommand.Parameters["@latitude"].Value = measurement.Latitude;
-            _insertCommand.Parameters["@longitude"].Value = measurement.Longitude;
             _insertCommand.Parameters["@wind_direction_deg"].Value = measurement.WindDirectionDeg;
             _insertCommand.Parameters["@wind_speed_mps"].Value = measurement.WindSpeedMps;
             _insertCommand.Parameters["@geom"].Value = measurement.Geometry; // NTS -> PostGIS via Npgsql

@@ -164,10 +164,10 @@ public static class ScentPolygonCalculator
     /// </summary>
     public static double CalculateFanAngle(double windSpeedMps)
     {
-        if (windSpeedMps < 1.0) return 30.0 * Math.PI / 180.0;      // ±30°
-        if (windSpeedMps < 3.0) return (30.0 - (windSpeedMps - 1.0) * 7.5) * Math.PI / 180.0; // ±15–30°
-        if (windSpeedMps < 6.0) return (15.0 - (windSpeedMps - 3.0) * 2.0) * Math.PI / 180.0; // ±9–15°
-        return Math.Max(5.0, 9.0 - (windSpeedMps - 6.0) * 0.5) * Math.PI / 180.0;              // ±5–9°
+        if (windSpeedMps < 1.0) return 30.0 * Math.PI / 180.0;      // ï¿½30ï¿½
+        if (windSpeedMps < 3.0) return (30.0 - (windSpeedMps - 1.0) * 7.5) * Math.PI / 180.0; // ï¿½15ï¿½30ï¿½
+        if (windSpeedMps < 6.0) return (15.0 - (windSpeedMps - 3.0) * 2.0) * Math.PI / 180.0; // ï¿½9ï¿½15ï¿½
+        return Math.Max(5.0, 9.0 - (windSpeedMps - 6.0) * 0.5) * Math.PI / 180.0;              // ï¿½5ï¿½9ï¿½
     }
 
     /// <summary>
@@ -194,7 +194,7 @@ public static class ScentPolygonCalculator
         return
             $"UNIFIED SCENT POLYGON:\n" +
             $"  Polygons: {unifiedPolygon.PolygonCount}\n" +
-            $"  Area: {unifiedPolygon.TotalAreaM2:F0} m² ({unifiedPolygon.TotalAreaM2 / 10000:F2} ha)\n" +
+            $"  Area: {unifiedPolygon.TotalAreaM2:F0} mï¿½ ({unifiedPolygon.TotalAreaM2 / 10000:F2} ha)\n" +
             $"  Efficiency: {efficiency:F1}%\n" +
             $"  Duration: {duration.TotalMinutes:F1} minutes\n" +
             $"  Avg wind: {unifiedPolygon.AverageWindSpeedMps:F1} m/s\n" +
