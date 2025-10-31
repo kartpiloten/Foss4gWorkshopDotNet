@@ -132,26 +132,28 @@ public class ScentPolygonService : IHostedService, IDisposable
     /// </summary>
     public ScentPolygonResult GeneratePolygonForMeasurement(RoverMeasurement measurement)
     {
-        var polygon = ScentPolygonCalculator.CreateScentPolygon(
-            measurement.Latitude,
-            measurement.Longitude,
-            measurement.WindDirectionDeg,
-            measurement.WindSpeedMps,
+    var polygon = ScentPolygonCalculator.CreateScentPolygon(
+     measurement.Latitude,
+   measurement.Longitude,
+       measurement.WindDirectionDeg,
+      measurement.WindSpeedMps,
             _configuration);
 
         var scentArea = ScentPolygonCalculator.CalculateScentAreaM2(polygon, measurement.Latitude);
 
-        return new ScentPolygonResult
+  return new ScentPolygonResult
         {
-            Polygon = polygon,
-            SessionId = measurement.SessionId,
+  Polygon = polygon,
+     RoverId = measurement.RoverId,
+      RoverName = measurement.RoverName,
+       SessionId = measurement.SessionId,
             Sequence = measurement.Sequence,
-            RecordedAt = measurement.RecordedAt,
+       RecordedAt = measurement.RecordedAt,
             Latitude = measurement.Latitude,
             Longitude = measurement.Longitude,
             WindDirectionDeg = measurement.WindDirectionDeg,
             WindSpeedMps = measurement.WindSpeedMps,
-            ScentAreaM2 = scentArea
+      ScentAreaM2 = scentArea
         };
     }
 

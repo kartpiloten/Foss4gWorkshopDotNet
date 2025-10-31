@@ -42,8 +42,8 @@ public class PostgresRoverDataReader : RoverDataReaderBase
             // Open physical connection (ADO.NET) - this will be reused
             _connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-            // Quick sanity check: verify table access (schema-qualified)
-            const string testSql = @"SELECT COUNT(*) FROM roverdata.rover_measurements LIMIT 1;";
+            // Quick sanity check: verify table access (updated to use rover_points table)
+            const string testSql = @"SELECT COUNT(*) FROM roverdata.rover_points LIMIT 1;";
             await using var testCmd = new NpgsqlCommand(testSql, _connection);
             await testCmd.ExecuteScalarAsync(cancellationToken);
         }
@@ -101,7 +101,7 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         await EnsureConnectionOpenAsync(cancellationToken);
         try
         {
-            const string countSql = "SELECT COUNT(*) FROM roverdata.rover_measurements;";
+            const string countSql = "SELECT COUNT(*) FROM roverdata.rover_points;";
             await using var cmd = new NpgsqlCommand(countSql, _connection);
             var result = await cmd.ExecuteScalarAsync(cancellationToken);
             return Convert.ToInt64(result);
@@ -122,9 +122,9 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         try
         {
             var sql = @"
-                SELECT session_id, sequence, recorded_at, latitude, longitude, 
+                SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
                        wind_direction_deg, wind_speed_mps, geom
-                FROM roverdata.rover_measurements ORDER BY sequence ASC;";
+                FROM roverdata.rover_points ORDER BY sequence ASC;";
 
             await using var cmd = new NpgsqlCommand(sql, _connection);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -151,9 +151,9 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         try
         {
             const string sql = @"
-                SELECT session_id, sequence, recorded_at, latitude, longitude, 
+                SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
                        wind_direction_deg, wind_speed_mps, geom
-                FROM roverdata.rover_measurements
+                FROM roverdata.rover_points
                 WHERE sequence > @lastSequence
                 ORDER BY sequence ASC;";
             await using var cmd = new NpgsqlCommand(sql, _connection);
@@ -182,9 +182,9 @@ public class PostgresRoverDataReader : RoverDataReaderBase
         try
         {
             const string sql = @"
-                SELECT session_id, sequence, recorded_at, latitude, longitude, 
+                SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
                        wind_direction_deg, wind_speed_mps, geom
-                FROM roverdata.rover_measurements
+                FROM roverdata.rover_points
                 ORDER BY sequence DESC
                 LIMIT 1;";
             await using var cmd = new NpgsqlCommand(sql, _connection);
@@ -209,16 +209,20 @@ public class PostgresRoverDataReader : RoverDataReaderBase
     {
         // Ordinal-based access is efficient; order matches SELECT list.
         // NetTopologySuite Point mapping requires Npgsql UseNetTopologySuite (PostGIS <-> NTS).
-        var sessionId = reader.GetFieldValue<Guid>(0);      // session_id
-        var sequence = reader.GetFieldValue<int>(1);        // sequence
-        var recordedAt = reader.GetFieldValue<DateTimeOffset>(2);  // recorded_at
-        var latitude = reader.GetFieldValue<double>(3);     // latitude
-        var longitude = reader.GetFieldValue<double>(4);    // longitude
-        var windDirection = reader.GetFieldValue<short>(5); // wind_direction_deg
-        var windSpeed = reader.GetFieldValue<float>(6);     // wind_speed_mps
-        var geometry = reader.GetFieldValue<Point>(7);      // geom (PostGIS geometry -> NTS Point)
+        var roverId = reader.GetFieldValue<Guid>(0);        // rover_id
+        var roverName = reader.GetFieldValue<string>(1);    // rover_name
+        var sessionId = reader.GetFieldValue<Guid>(2);      // session_id
+        var sequence = reader.GetFieldValue<int>(3);        // sequence
+        var recordedAt = reader.GetFieldValue<DateTimeOffset>(4);  // recorded_at
+        var latitude = reader.GetFieldValue<double>(5);     // latitude
+        var longitude = reader.GetFieldValue<double>(6);    // longitude
+        var windDirection = reader.GetFieldValue<short>(7); // wind_direction_deg
+        var windSpeed = reader.GetFieldValue<float>(8);     // wind_speed_mps
+        var geometry = reader.GetFieldValue<Point>(9);      // geom (PostGIS geometry -> NTS Point)
 
         return new RoverMeasurement(
+            roverId,
+            roverName,
             sessionId,
             sequence,
             recordedAt,
@@ -228,12 +232,6 @@ public class PostgresRoverDataReader : RoverDataReaderBase
             windSpeed,
             geometry
         );
-    }
-
-    private void CleanupConnection()
-    {
-        // Note: Connection will be automatically returned to pool on close
-        // No need to dispose on every error - only on actual disposal of the reader
     }
 
     protected override void Dispose(bool disposing)

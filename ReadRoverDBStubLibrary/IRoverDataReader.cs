@@ -51,6 +51,8 @@ public interface IRoverDataReader : IDisposable
 /// - Suitable for display in Blazor and for GIS export (GeoJSON, etc.).
 /// </summary>
 public record RoverMeasurement(
+    Guid RoverId,
+    string RoverName,
     Guid SessionId,
     int Sequence,
     DateTimeOffset RecordedAt,

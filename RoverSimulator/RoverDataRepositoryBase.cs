@@ -12,11 +12,13 @@ namespace RoverSimulator;
 public abstract class RoverDataRepositoryBase : IRoverDataRepository
 {
     protected readonly string _connectionString;
+    protected readonly string _sessionTableName;
     protected bool _disposed = false;
 
-    protected RoverDataRepositoryBase(string connectionString)
+    protected RoverDataRepositoryBase(string connectionString, string sessionTableName)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _sessionTableName = sessionTableName ?? throw new ArgumentNullException(nameof(sessionTableName));
     }
 
     public abstract Task InitializeAsync(CancellationToken cancellationToken = default);

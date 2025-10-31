@@ -24,12 +24,13 @@ public class DatabaseService
     /// <summary>
     /// Creates the appropriate data repository with connection validation.
     /// </summary>
-    public async Task<IRoverDataRepository> CreateRepositoryAsync(CancellationToken cancellationToken = default)
+    public async Task<IRoverDataRepository> CreateRepositoryAsync(string sessionTableName, CancellationToken cancellationToken = default)
     {
         Console.WriteLine($"\n{new string('=', 60)}");
         Console.WriteLine("DATABASE CONNECTION SETUP");
         Console.WriteLine($"{new string('=', 60)}");
         Console.WriteLine($"Database type: {_settings.Type.ToUpper()}");
+        Console.WriteLine($"Session: {sessionTableName}");
 
         if (_settings.Type.ToLower() == "postgres")
         {
@@ -38,13 +39,13 @@ public class DatabaseService
                 throw new InvalidOperationException("PostgreSQL connection string is required when database type is 'postgres'");
             }
 
-            var (isConnected, errorMessage) = await TestPostgresConnectionAsync(cancellationToken);
+            var (isConnected, errorMessage) = await TestPostgresConnectionAsync(sessionTableName, cancellationToken);
 
             if (isConnected)
             {
                 Console.WriteLine("SUCCESS: PostgreSQL connection successful - using PostgreSQL database");
                 Console.WriteLine($"{new string('=', 60)}");
-                return new PostgresRoverDataRepository(_settings.Postgres.ConnectionString);
+                return new PostgresRoverDataRepository(_settings.Postgres.ConnectionString, sessionTableName);
             }
             else
             {
@@ -71,7 +72,7 @@ public class DatabaseService
             Console.WriteLine("SUCCESS: Using GeoPackage database (local file storage)");
             Console.WriteLine($"Folder: {_settings.GeoPackage.FolderPath}");
             Console.WriteLine($"{new string('=', 60)}");
-            return new GeoPackageRoverDataRepository(_settings.GeoPackage.FolderPath);
+            return new GeoPackageRoverDataRepository(_settings.GeoPackage.FolderPath, sessionTableName);
         }
         else
         {
@@ -82,7 +83,7 @@ public class DatabaseService
     /// <summary>
     /// Tests PostgreSQL database connectivity with timeout and retry logic.
     /// </summary>
-    private async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(CancellationToken cancellationToken = default)
+    private async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(string sessionTableName, CancellationToken cancellationToken = default)
     {
         Console.WriteLine("Testing PostgreSQL connection...");
         Console.WriteLine($"Target: {GetPostgresServerInfo()}");
@@ -95,7 +96,7 @@ public class DatabaseService
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(TimeSpan.FromSeconds(_settings.Connection.TimeoutSeconds));
 
-                using var testRepo = new PostgresRoverDataRepository(_settings.Postgres.ConnectionString);
+                using var testRepo = new PostgresRoverDataRepository(_settings.Postgres.ConnectionString, sessionTableName);
 
                 Console.WriteLine($"  Attempt {attempt}/{_settings.Connection.MaxRetryAttempts}: Connecting...");
 

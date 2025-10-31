@@ -162,6 +162,8 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
     private static RoverMeasurement ConvertToRoverMeasurement(FeatureRecord feature)
     {
         // Attributes are strings; parse using InvariantCulture for consistent numeric formats
+        var roverId = Guid.Parse(feature.Attributes.ContainsKey("rover_id") ? feature.Attributes["rover_id"]! : Guid.Empty.ToString());
+        var roverName = feature.Attributes.ContainsKey("rover_name") ? feature.Attributes["rover_name"]! : "Unknown";
         var sessionId = Guid.Parse(feature.Attributes["session_id"] ?? throw new InvalidDataException("Missing session_id"));
         var sequence = int.Parse(feature.Attributes["sequence"] ?? "0", CultureInfo.InvariantCulture);
         var recordedAt = DateTimeOffset.Parse(feature.Attributes["recorded_at"] ?? throw new InvalidDataException("Missing recorded_at"));
@@ -177,6 +179,8 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
             throw new InvalidDataException("Feature geometry is not a Point"); // NTS Point required
 
         return new RoverMeasurement(
+            roverId,
+            roverName,
             sessionId,
             sequence,
             recordedAt,

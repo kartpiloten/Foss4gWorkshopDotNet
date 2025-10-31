@@ -17,6 +17,8 @@ public interface IRoverDataRepository : IDisposable // IDisposable for releasing
 }
 
 public record RoverMeasurement(
+    Guid RoverId,
+    string RoverName,
     Guid SessionId,
     int Sequence,
     DateTimeOffset RecordedAt,

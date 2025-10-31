@@ -13,6 +13,8 @@ using ReadRoverDBStubLibrary; // Add reference to the library
 using RoverSimulator.Configuration;
 using RoverSimulator.Services;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
+using Npgsql; // PostgreSQL ADO.NET provider for session table queries
 
 namespace RoverSimulator;
 
@@ -21,24 +23,39 @@ class RoverSimulatorProgram
     public static async Task Main(string[] args)
     {
         // Configuration: load appsettings.json (kept minimal)
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .Build();
+        // Handle different working directories (run from solution root or project directory)
+   var appSettingsPath = File.Exists("appsettings.json") 
+            ? Path.GetFullPath("appsettings.json")
+     : Path.GetFullPath(Path.Combine("RoverSimulator", "appsettings.json"));
+
+ if (!File.Exists(appSettingsPath))
+        {
+  Console.WriteLine($"ERROR: appsettings.json not found!");
+   Console.WriteLine($"Looked in: {appSettingsPath}");
+            Console.WriteLine($"Current directory: {Directory.GetCurrentDirectory()}");
+            Console.WriteLine();
+       Console.WriteLine("Please ensure appsettings.json exists in the RoverSimulator project directory.");
+        return;
+ }
+
+var configuration = new ConfigurationBuilder()
+         .SetBasePath(Path.GetDirectoryName(appSettingsPath)!)
+       .AddJsonFile(Path.GetFileName(appSettingsPath), optional: false, reloadOnChange: true)
+      .Build();
 
         // Dependency Injection: register typed options and services
         var services = new ServiceCollection();
-        services.Configure<SimulatorSettings>(configuration);
-        services.AddSingleton<DatabaseService>(provider =>
+      services.Configure<SimulatorSettings>(configuration);
+   services.AddSingleton<DatabaseService>(provider =>
         {
             var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
-            return new DatabaseService(settings.Database);
-        });
-        
-        // Replace ForestBoundaryService with ForestBoundaryReader from ReadRoverDBStubLibrary
-        services.AddSingleton<ForestBoundaryReader>(provider =>
+   return new DatabaseService(settings.Database);
+     });
+      
+        // Use ForestBoundaryReader from ReadRoverDBStubLibrary
+ services.AddSingleton<ForestBoundaryReader>(provider =>
         {
-            var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
+  var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
             var geoPackagePath = Path.Combine(GetSolutionDirectory(), settings.Forest.BoundaryFile);
             return new ForestBoundaryReader(geoPackagePath, settings.Forest.LayerName);
         });
@@ -51,257 +68,476 @@ class RoverSimulatorProgram
         var forestReader = serviceProvider.GetRequiredService<ForestBoundaryReader>();
 
         // Utility: verify existing GeoPackage and exit
-        if (args.Length > 0 && args[0] == "--verify")
-        {
-            var geoPackagePath = Path.Combine(settings.Database.GeoPackage.FolderPath, "rover_data.gpkg");
-            await VerifyGeoPackageAsync(geoPackagePath);
-            return;
+        if (args.Length >0 && args.Contains("--verify", StringComparer.OrdinalIgnoreCase))
+  {
+            Console.WriteLine("Verification mode - listing available sessions...");
+   await ListAvailableSessionsAsync(settings, showOutput: true, default);
+       return;
         }
 
-        // Cancellation: Ctrl+C to stop
+        // === SESSION SELECTION ===
+        Console.WriteLine("\n" + new string('=', 60));
+        Console.WriteLine("ROVER SIMULATOR - SESSION SETUP");
+      Console.WriteLine(new string('=', 60));
+
+// Cancellation: Ctrl+C to stop
         var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (s, e) =>
-        {
+  {
             e.Cancel = true;
-            cts.Cancel();
+         cts.Cancel();
         };
 
-        Console.WriteLine($"Rover simulator starting with {settings.Database.Type.ToUpper()} database.");
-        Console.WriteLine("Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
-        Console.WriteLine("Run with '--verify' argument to check existing GeoPackage contents.");
+        string sessionName = await GetSessionNameAsync(settings, cts.Token);
+
+        Console.WriteLine($"\nSession: {sessionName}");
+
+        // === ROVER SETUP ===
+        Guid roverId = GetRoverId(args) ?? GetRoverIdFromEnv() ?? Guid.NewGuid();
+  string roverName = await GetRoverNameAsync();
+
+        Console.WriteLine($"Rover ID: {roverId}");
+    Console.WriteLine($"Rover Name: {roverName}");
+        Console.WriteLine(new string('=', 60));
+
+        Console.WriteLine($"\nRover simulator starting with {settings.Database.Type.ToUpper()} database.");
+      Console.WriteLine("Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
 
         // Load forest boundary using ForestBoundaryReader
-        Console.WriteLine("\nLoading forest boundary...");
+     Console.WriteLine("\nLoading forest boundary...");
         Polygon? forestPolygon = null;
-        try
+  try
         {
-            forestPolygon = await forestReader.GetBoundaryPolygonAsync(cts.Token);
-            if (forestPolygon != null)
+        forestPolygon = await forestReader.GetBoundaryPolygonAsync(cts.Token);
+     if (forestPolygon != null)
             {
-                var bbox = await forestReader.GetBoundingBoxAsync(cts.Token);
-                var centroid = await forestReader.GetCentroidAsync(cts.Token);
-                Console.WriteLine("Forest boundary loaded successfully!");
-                Console.WriteLine($"  Bounding box: ({bbox?.MinX:F6}, {bbox?.MinY:F6}) to ({bbox?.MaxX:F6}, {bbox?.MaxY:F6})");
-                Console.WriteLine($"  Centroid: ({centroid?.X:F6}, {centroid?.Y:F6})");
+   var bbox = await forestReader.GetBoundingBoxAsync(cts.Token);
+     var centroid = await forestReader.GetCentroidAsync(cts.Token);
+     Console.WriteLine("Forest boundary loaded successfully!");
+      Console.WriteLine($"  Bounding box: ({bbox?.MinX:F6}, {bbox?.MinY:F6}) to ({bbox?.MaxX:F6}, {bbox?.MaxY:F6})");
+    Console.WriteLine($"  Centroid: ({centroid?.X:F6}, {centroid?.Y:F6})");
             }
-            else
-            {
-                Console.WriteLine("Warning: Could not load forest boundary.");
-                Console.WriteLine("Using fallback coordinates...");
-            }
+ else
+        {
+    Console.WriteLine("Warning: Could not load forest boundary.");
+   Console.WriteLine("Using fallback coordinates...");
+   }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Warning: Could not load forest boundary: {ex.Message}");
+  catch (Exception ex)
+      {
+   Console.WriteLine($"Warning: Could not load forest boundary: {ex.Message}");
             Console.WriteLine("Using fallback coordinates...");
         }
 
         using var progressMonitor = new ProgressMonitor(cts);
 
-        // Create repository
-        IRoverDataRepository repository;
+ // Create repository with session name
+    IRoverDataRepository repository;
         try
         {
-            repository = await databaseService.CreateRepositoryAsync(cts.Token);
+   repository = await databaseService.CreateRepositoryAsync(sessionName, cts.Token);
         }
         catch (OperationCanceledException)
         {
             Console.WriteLine("Database setup cancelled by user.");
-            return;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"\nDatabase connection failed: {ex.Message}");
-            Console.WriteLine("\nSimulation cannot proceed without a valid database connection.");
+       return;
+   }
+  catch (Exception ex)
+     {
+     Console.WriteLine($"\nDatabase connection failed: {ex.Message}");
+    Console.WriteLine("\nSimulation cannot proceed without a valid database connection.");
             Console.WriteLine("Please check your appsettings.json configuration and try again.");
-            return;
+   return;
         }
 
-        // Run main loop
+  // Run main loop
         try
         {
-            await RunSimulationAsync(repository, settings, forestReader, forestPolygon, cts.Token);
+    await RunSimulationAsync(repository, settings, forestReader, forestPolygon, roverId, roverName, Guid.NewGuid(), cts.Token);
         }
-        catch (OperationCanceledException)
+    catch (OperationCanceledException)
         {
-            Console.WriteLine("\nSimulation cancelled by user. Saving data and cleaning up...");
+          Console.WriteLine("\nSimulation cancelled by user. Saving data and cleaning up...");
         }
-        catch (Exception ex)
-        {
+     catch (Exception ex)
+   {
             Console.WriteLine($"\nError during simulation: {ex.Message}");
-            await HandleSimulationError(ex);
-        }
+      await HandleSimulationError(ex);
+     }
         finally
         {
-            Console.WriteLine("\nCleaning up and releasing file locks...");
-            repository.Dispose();
+     Console.WriteLine("\nCleaning up and releasing file locks...");
+         repository.Dispose();
             forestReader.Dispose();
-            await Task.Delay(500);
+  await Task.Delay(500);
         }
 
         Console.WriteLine("\nRover simulator stopped.");
         if (repository is GeoPackageRoverDataRepository)
         {
-            Console.WriteLine("The GeoPackage file should now be available for other applications.");
+   Console.WriteLine($"Session '{sessionName}' GeoPackage file is now available for other applications.");
+  }
+     else
+        {
+   Console.WriteLine("Database connection closed.");
+        }
+    }
+
+    private static async Task<string> GetSessionNameAsync(SimulatorSettings settings, CancellationToken cancellationToken)
+    {
+        // List existing sessions (database-type aware)
+        var existingSessions = await ListAvailableSessionsAsync(settings, showOutput: true, cancellationToken);
+
+        Console.WriteLine("\nWould you like to join an existing session or create a new one?");
+      Console.Write("Type 'new' for a new session, or enter an existing session name: ");
+        
+        string? input = Console.ReadLine()?.Trim();
+
+        if (string.IsNullOrEmpty(input))
+        {
+            Console.WriteLine("No input provided. Creating new session...");
+   input = "new";
+        }
+
+        if (input.Equals("new", StringComparison.OrdinalIgnoreCase))
+        {
+      Console.Write("\nName the new session (alphanumeric, no spaces): ");
+            string? newSessionName = Console.ReadLine()?.Trim();
+
+      while (string.IsNullOrWhiteSpace(newSessionName) || !IsValidSessionName(newSessionName))
+            {
+                Console.WriteLine("Invalid session name. Use only letters, numbers, and underscores.");
+   Console.Write("Name the new session: ");
+                newSessionName = Console.ReadLine()?.Trim();
+}
+
+    return SanitizeSessionName(newSessionName!);
         }
         else
         {
-            Console.WriteLine("Database connection closed.");
+       // Validate that the session exists
+      if (existingSessions.Contains(input, StringComparer.OrdinalIgnoreCase))
+   {
+         return input;
+    }
+else
+       {
+                Console.WriteLine($"\nWarning: Session '{input}' not found. Creating new session with this name...");
+       return SanitizeSessionName(input);
+            }
+   }
+    }
+
+    private static async Task<string> GetRoverNameAsync()
+    {
+    Console.Write("\nWhat is the rover dog's name? ");
+        string? name = Console.ReadLine()?.Trim();
+
+        while (string.IsNullOrWhiteSpace(name))
+        {
+ Console.WriteLine("Please provide a name for the rover dog.");
+ Console.Write("Rover dog's name: ");
+     name = Console.ReadLine()?.Trim();
         }
+
+        return name!;
+    }
+
+    private static async Task<List<string>> ListAvailableSessionsAsync(SimulatorSettings settings, bool showOutput = false, CancellationToken cancellationToken = default)
+    {
+    var sessions = new List<string>();
+
+    if (settings.Database.Type.ToLower() == "postgres")
+{
+       // Query PostgreSQL rover_sessions table
+    try
+  {
+    using var dataSource = new NpgsqlDataSourceBuilder(settings.Database.Postgres.ConnectionString)
+         .UseNetTopologySuite()
+    .Build();
+    
+    await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+
+      // Query rover_sessions table for all session names with counts in single query
+     const string sql = @"
+SELECT rs.session_name, COUNT(rp.id) as measurement_count
+        FROM roverdata.rover_sessions rs
+        LEFT JOIN roverdata.rover_points rp ON rs.session_id = rp.session_id
+      GROUP BY rs.session_name, rs.last_updated
+    ORDER BY rs.last_updated DESC;";
+
+      await using var cmd = new NpgsqlCommand(sql, conn);
+    await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+    // Read all results and store them
+    var sessionDetails = new List<(string name, long count)>();
+ while (await reader.ReadAsync(cancellationToken))
+{
+         var sessionName = reader.GetString(0);
+     var count = reader.GetInt64(1);
+         sessionDetails.Add((sessionName, count));
+  sessions.Add(sessionName);
+     }
+
+    // Close the reader before displaying output
+    await reader.CloseAsync();
+
+    if (showOutput)
+  {
+if (sessionDetails.Count == 0)
+      {
+   Console.WriteLine("No existing sessions found.");
+ }
+    else
+   {
+     Console.WriteLine($"\nExisting sessions ({sessionDetails.Count}):");
+    foreach (var (name, count) in sessionDetails)
+            {
+  Console.WriteLine($"  - {name} (Measurements: {count})");
+            }
+ }
+     }
+    }
+    catch (Exception ex)
+     {
+  if (showOutput)
+    {
+     Console.WriteLine($"Warning: Could not list sessions from PostgreSQL: {ex.Message}");
+       Console.WriteLine("No existing sessions found.");
+  }
+}
+   }
+ else if (settings.Database.Type.ToLower() == "geopackage")
+    {
+  // Query filesystem for GeoPackage files
+     var folderPath = settings.Database.GeoPackage.FolderPath;
+    
+   if (!Directory.Exists(folderPath))
+      return sessions;
+
+  var geoPackageFiles = Directory.GetFiles(folderPath, "session_*.gpkg");
+
+    if (showOutput)
+  {
+    if (geoPackageFiles.Length == 0)
+ {
+       Console.WriteLine("No existing sessions found.");
+    }
+     else
+     {
+   Console.WriteLine($"\nExisting sessions ({geoPackageFiles.Length}):");
+  foreach (var file in geoPackageFiles)
+       {
+var fileName = Path.GetFileNameWithoutExtension(file);
+ var sessionName = fileName.Replace("session_", "");
+     sessions.Add(sessionName);
+   
+ var fileInfo = new FileInfo(file);
+     Console.WriteLine($"  - {sessionName} (Size: {fileInfo.Length / 1024.0:F1} KB, Modified: {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm})");
+          }
+ }
+}
+   else
+    {
+    foreach (var file in geoPackageFiles)
+   {
+   var fileName = Path.GetFileNameWithoutExtension(file);
+     var sessionName = fileName.Replace("session_", "");
+  sessions.Add(sessionName);
+   }
+ }
+        }
+
+   return sessions;
+    }
+
+    private static bool IsValidSessionName(string name)
+    {
+        // Allow only alphanumeric and underscores
+     return Regex.IsMatch(name, @"^[a-zA-Z0-9_]+$");
+    }
+
+    private static string SanitizeSessionName(string name)
+    {
+        // Remove invalid characters and convert to lowercase
+        return Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9_]", "_");
     }
 
     private static async Task RunSimulationAsync(
         IRoverDataRepository repository, 
-        SimulatorSettings settings, 
+     SimulatorSettings settings, 
         ForestBoundaryReader forestReader,
-        Polygon? forestPolygon,
+    Polygon? forestPolygon,
+        Guid roverId,
+        string roverName,
+        Guid sessionId,
         CancellationToken cancellationToken)
     {
-        // GeoPackage-only: check file lock before creating/opening
+// GeoPackage-only: check file lock before creating/opening
         if (repository is GeoPackageRoverDataRepository geoRepo)
-        {
-            await HandleGeoPackageFileLocks(geoRepo);
+     {
+         await HandleGeoPackageFileLocks(geoRepo);
         }
 
-        // Initialize storage
-        Console.WriteLine("\nInitializing database...");
+      // Initialize storage (non-destructive)
+Console.WriteLine("\nInitializing database (non-destructive)...");
         try
         {
-            await repository.ResetDatabaseAsync(cancellationToken);
-            await repository.InitializeAsync(cancellationToken);
-            Console.WriteLine("Database initialization completed successfully!");
+      await repository.InitializeAsync(cancellationToken);
+     Console.WriteLine("Database initialization completed successfully!");
         }
-        catch (Exception ex)
+      catch (Exception ex)
         {
-            Console.WriteLine($"Database initialization failed: {ex.Message}");
-            throw;
-        }
+   Console.WriteLine($"Database initialization failed: {ex.Message}");
+     throw;
+   }
 
         // Get forest polygon if not already loaded
         if (forestPolygon == null)
         {
-            forestPolygon = await forestReader.GetBoundaryPolygonAsync(cancellationToken);
-        }
+ forestPolygon = await forestReader.GetBoundaryPolygonAsync(cancellationToken);
+    }
 
         // Create fallback polygon if still null
-        if (forestPolygon == null)
+   if (forestPolygon == null)
         {
             var fallbackBounds = settings.Forest.FallbackBounds;
-            var coordinates = new[]
+   var coordinates = new[]
             {
                 new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude),
-                new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MinLatitude),
-                new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MaxLatitude),
-                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MaxLatitude),
-                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude)
-            };
+ new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MinLatitude),
+            new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MaxLatitude),
+     new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MaxLatitude),
+       new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude)
+     };
             forestPolygon = new Polygon(new LinearRing(coordinates)) { SRID = 4326 };
-        }
+   }
 
         // Initial position
         var rng = new Random();
-        var envelope = await forestReader.GetBoundingBoxAsync(cancellationToken) 
-            ?? forestPolygon.EnvelopeInternal;
+ var envelope = await forestReader.GetBoundingBoxAsync(cancellationToken) 
+    ?? forestPolygon.EnvelopeInternal;
         
-        Point startPoint;
+ Point startPoint;
         if (settings.Rover.StartPosition.UseForestCentroid)
         {
-            var centroid = await forestReader.GetCentroidAsync(cancellationToken);
-            startPoint = centroid ?? forestPolygon.Centroid;
+    var centroid = await forestReader.GetCentroidAsync(cancellationToken);
+ startPoint = centroid ?? forestPolygon.Centroid;
         }
-        else
+     else
         {
-            startPoint = new Point(
-                settings.Rover.StartPosition.DefaultLongitude, 
-                settings.Rover.StartPosition.DefaultLatitude) { SRID = 4326 };
+ startPoint = new Point(
+      settings.Rover.StartPosition.DefaultLongitude, 
+       settings.Rover.StartPosition.DefaultLatitude) { SRID = 4326 };
         }
 
         var position = new RoverPosition(
-            initialLat: startPoint.Y,
-            initialLon: startPoint.X,
-            initialBearing: rng.NextDouble() * 360.0,
+      initialLat: startPoint.Y,
+  initialLon: startPoint.X,
+   initialBearing: rng.NextDouble() * 360.0,
             walkSpeed: settings.Rover.Movement.WalkSpeedMps,
             minLat: envelope.MinY,
             maxLat: envelope.MaxY,
             minLon: envelope.MinX,
-            maxLon: envelope.MaxX
+      maxLon: envelope.MaxX
         );
 
-        Console.WriteLine($"\nStarting rover at: ({position.Latitude:F6}, {position.Longitude:F6})");
-        Console.WriteLine($"Forest bounds: ({envelope.MinX:F6}, {envelope.MinY:F6}) to ({envelope.MaxX:F6}, {envelope.MaxY:F6})");
-        Console.WriteLine($"Rover speed: {position.WalkSpeedMps} m/s");
+        Console.WriteLine($"\nStarting rover '{roverName}' at: ({position.Latitude:F6}, {position.Longitude:F6})");
+      Console.WriteLine($"Forest bounds: ({envelope.MinX:F6}, {envelope.MinY:F6}) to ({envelope.MaxX:F6}, {envelope.MaxY:F6})");
+     Console.WriteLine($"Rover speed: {position.WalkSpeedMps} m/s");
 
-        // Initialize environment attributes (wind)
+  // Initialize environment attributes (wind)
         var windRange = settings.Simulation.Wind.InitialSpeedRange;
-        var attributes = new RoverAttributes(
-            initialWindDirection: rng.Next(0, 360),
-            initialWindSpeed: windRange.Min + rng.NextDouble() * (windRange.Max - windRange.Min),
+   var attributes = new RoverAttributes(
+       initialWindDirection: rng.Next(0, 360),
+        initialWindSpeed: windRange.Min + rng.NextDouble() * (windRange.Max - windRange.Min),
             maxWindSpeed: settings.Simulation.Wind.MaxSpeedMps
         );
 
         // Main loop
-        var interval = TimeSpan.FromSeconds(settings.Simulation.IntervalSeconds);
-        var sessionId = Guid.NewGuid();
+    var interval = TimeSpan.FromSeconds(settings.Simulation.IntervalSeconds);
         int sequenceNumber = 0;
-        var sw = Stopwatch.StartNew();
+    var sw = Stopwatch.StartNew();
         var nextTick = sw.Elapsed;
 
         Console.WriteLine("\nStarting rover simulation...");
         Console.WriteLine("Features: Smooth movement, weather patterns, forest boundary checking");
         Console.WriteLine($"Data storage: {(repository is PostgresRoverDataRepository ? "PostgreSQL database" : "GeoPackage file")}");
-        Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
+Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var now = DateTimeOffset.UtcNow;
+ var now = DateTimeOffset.UtcNow;
 
             // Update rover state
-            position.UpdateBearing(rng, meanChange: 0, stdDev: settings.Rover.Movement.BearingStdDev);
+      position.UpdateBearing(rng, meanChange: 0, stdDev: settings.Rover.Movement.BearingStdDev);
             position.UpdatePosition(interval);
-            position.ConstrainToForestBoundary(forestPolygon);
+ position.ConstrainToForestBoundary(forestPolygon);
 
-            // Update environment
+       // Update environment
             attributes.UpdateWindMeasurements(rng);
 
-            // Create and insert measurement
-            var measurement = new RoverMeasurement(
-                sessionId,
-                sequenceNumber++,
-                now,
-                position.Latitude,
-                position.Longitude,
-                attributes.GetWindDirectionAsShort(),
-                attributes.GetWindSpeedAsFloat(),
-                position.ToGeometry()
-            );
+            // Create and insert measurement with rover name
+ var measurement = new RoverMeasurement(
+      roverId,
+  roverName,
+         sessionId,
+        sequenceNumber++,
+        now,
+    position.Latitude,
+      position.Longitude,
+    attributes.GetWindDirectionAsShort(),
+     attributes.GetWindSpeedAsFloat(),
+       position.ToGeometry()
+    );
 
-            try
+  try
             {
-                await repository.InsertMeasurementAsync(measurement, cancellationToken);
-            }
-            catch (Exception ex)
+      await repository.InsertMeasurementAsync(measurement, cancellationToken);
+      }
+       catch (Exception ex)
             {
-                Console.WriteLine($"\nError inserting measurement: {ex.Message}");
-                throw;
+    Console.WriteLine($"\nError inserting measurement: {ex.Message}");
+              throw;
             }
 
             // Progress (every 10 rows)
-            ProgressMonitor.ReportProgress(
-                sequenceNumber,
-                sessionId,
+    ProgressMonitor.ReportProgress(
+     sequenceNumber,
+     sessionId,
                 position.Latitude,
-                position.Longitude,
-                attributes.FormatWindInfo()
+            position.Longitude,
+     attributes.FormatWindInfo()
             );
 
-            // Fixed-rate loop
-            nextTick += interval;
-            var delay = nextTick - sw.Elapsed;
-            if (delay > TimeSpan.Zero)
-                await Task.Delay(delay, cancellationToken);
-            else
-                nextTick = sw.Elapsed;
+       // Fixed-rate loop
+         nextTick += interval;
+      var delay = nextTick - sw.Elapsed;
+     if (delay > TimeSpan.Zero)
+          await Task.Delay(delay, cancellationToken);
+    else
+        nextTick = sw.Elapsed;
         }
+    }
+
+  // ...existing helper methods...
+    private static Guid? GetRoverId(string[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+          if (string.Equals(args[i], "--rover", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+          if (Guid.TryParse(args[i + 1], out var id))
+  return id;
+    }
+  }
+        return null;
+    }
+
+    private static Guid? GetRoverIdFromEnv()
+ {
+        var env = Environment.GetEnvironmentVariable("ROVER_ID");
+ return Guid.TryParse(env, out var id) ? id : null;
     }
 
     private static string GetSolutionDirectory()
@@ -310,160 +546,99 @@ class RoverSimulatorProgram
         var directory = new DirectoryInfo(currentDir);
 
         while (directory != null && !directory.GetFiles("*.sln").Any())
-        {
-            directory = directory.Parent;
-        }
+   {
+         directory = directory.Parent;
+ }
 
         return directory?.FullName ?? currentDir;
     }
 
-    // GeoPackage file lock helper for Windows users with GIS apps open
     private static Task HandleGeoPackageFileLocks(GeoPackageRoverDataRepository geoRepo)
     {
         Console.WriteLine("\n" + new string('=', 60));
         Console.WriteLine("GEOPACKAGE FILE LOCK CHECK");
-        Console.WriteLine(new string('=', 60));
+   Console.WriteLine(new string('=', 60));
 
-        geoRepo.CheckFileLockStatus();
+      geoRepo.CheckFileLockStatus();
 
         if (geoRepo.IsFileLocked())
         {
-            var lockingProcesses = geoRepo.GetLockingProcesses();
+        var lockingProcesses = geoRepo.GetLockingProcesses();
 
-            Console.WriteLine("\nERROR: The GeoPackage file 'rover_data.gpkg' is currently LOCKED!");
-            Console.WriteLine(new string('-', 60));
+ Console.WriteLine("\nERROR: The GeoPackage file is currently LOCKED!");
+  Console.WriteLine(new string('-', 60));
 
-            if (lockingProcesses.Any(p => p.ToLower().Contains("roversimulator")))
-            {
-                Console.WriteLine("DETECTED: Another RoverSimulator instance appears to be running!");
-                Console.WriteLine("This is the most likely cause of the file lock.");
-                Console.WriteLine("\nTo resolve this:");
-                Console.WriteLine("1. Check Task Manager for other RoverSimulator.exe processes");
-                Console.WriteLine("2. Close any other RoverSimulator instances");
-                Console.WriteLine("3. Wait a few seconds for the file to be released");
-                Console.WriteLine("4. Try running this simulator again");
-            }
-            else
-            {
-                Console.WriteLine("DETECTED: A GIS application may have the file open:");
-                if (lockingProcesses.Any())
-                {
-                    Console.WriteLine("Potentially locking processes:");
-                    foreach (var process in lockingProcesses)
-                    {
-                        Console.WriteLine($"  - {process}");
-                    }
-                }
-                Console.WriteLine("\nTo resolve this:");
-                Console.WriteLine("1. Close QGIS, ArcGIS, or any other GIS applications");
-                Console.WriteLine("2. Make sure the rover_data.gpkg file is not open in any program");
-                Console.WriteLine("3. Wait a few seconds for the file to be released");
-            }
-
-            Console.WriteLine(new string('-', 60));
-            Console.WriteLine("Press any key to retry, or Ctrl+C to exit and fix the issue manually.");
-            Console.ReadKey(true);
-
-            Console.WriteLine("\nRechecking file lock status...");
-            if (geoRepo.IsFileLocked())
-            {
-                Console.WriteLine("\nFile is STILL LOCKED. Cannot proceed with simulation.");
-                Console.WriteLine("Please follow the instructions above to resolve the file lock.");
-                Console.WriteLine("If the problem persists, restart your computer to clear any stuck file handles.");
-                Environment.Exit(1);
-            }
-            else
-            {
-                Console.WriteLine("\nSUCCESS: File is now available! Continuing with simulation...");
-            }
+          if (lockingProcesses.Any(p => p.ToLower().Contains("roversimulator")))
+    {
+   Console.WriteLine("DETECTED: Another RoverSimulator instance appears to be running!");
+         Console.WriteLine("This is the most likely cause of the file lock.");
+     Console.WriteLine("\nTo resolve this:");
+         Console.WriteLine("1. Check Task Manager for other RoverSimulator.exe processes");
+    Console.WriteLine("2. Close any other RoverSimulator instances");
+         Console.WriteLine("3. Wait a few seconds for the file to be released");
+  Console.WriteLine("4. Try running this simulator again");
+     }
+  else
+     {
+ Console.WriteLine("DETECTED: A GIS application may have the file open:");
+      if (lockingProcesses.Any())
+         {
+      Console.WriteLine("Potentially locking processes:");
+       foreach (var process in lockingProcesses)
+       {
+     Console.WriteLine($" - {process}");
+ }
+     }
+     Console.WriteLine("\nTo resolve this:");
+  Console.WriteLine("1. Close QGIS, ArcGIS, or any other GIS applications");
+    Console.WriteLine("2. Make sure the GeoPackage file is not open in any program");
+      Console.WriteLine("3. Wait a few seconds for the file to be released");
         }
-        else
-        {
-            Console.WriteLine("File lock check: OK - File is available for use.");
+
+          Console.WriteLine(new string('-', 60));
+       Console.WriteLine("Press any key to retry, or Ctrl+C to exit and fix the issue manually.");
+    Console.ReadKey(true);
+
+      Console.WriteLine("\nRechecking file lock status...");
+            if (geoRepo.IsFileLocked())
+  {
+      Console.WriteLine("\nFile is STILL LOCKED. Cannot proceed with simulation.");
+     Console.WriteLine("Please follow the instructions above to resolve the file lock.");
+       Console.WriteLine("If the problem persists, restart your computer to clear any stuck file handles.");
+          Environment.Exit(1);
+        }
+  else
+      {
+        Console.WriteLine("\nSUCCESS: File is now available! Continuing with simulation...");
+ }
+      }
+ else
+     {
+          Console.WriteLine("File lock check: OK - File is available for use.");
         }
 
         Console.WriteLine(new string('=', 60));
         return Task.CompletedTask;
     }
 
-    // Keep troubleshooting minimal; point users to likely fixes
     private static Task HandleSimulationError(Exception ex)
     {
         if (ex.Message.Contains("locked"))
         {
-            Console.WriteLine("\nTROUBLESHOOTING TIPS:");
-            Console.WriteLine("- Check for other RoverSimulator instances in Task Manager");
-            Console.WriteLine("- Close QGIS, ArcGIS, or other GIS applications");
-            Console.WriteLine("- Wait a few seconds and try again");
-            Console.WriteLine("- If problem persists, restart your computer");
-        }
-        else if (ex.Message.Contains("timeout") || ex.Message.Contains("connection"))
+  Console.WriteLine("\nTROUBLESHOOTING TIPS:");
+  Console.WriteLine("- Check for other RoverSimulator instances in Task Manager");
+        Console.WriteLine("- Close QGIS, ArcGIS, or other GIS applications");
+  Console.WriteLine("- Wait a few seconds and try again");
+  Console.WriteLine("- If problem persists, restart your computer");
+ }
+   else if (ex.Message.Contains("timeout") || ex.Message.Contains("connection"))
         {
-            Console.WriteLine("\nDATABASE CONNECTION TROUBLESHOOTING:");
-            Console.WriteLine("- Check network connectivity to the database server");
-            Console.WriteLine("- Verify the database server is running and accessible");
-            Console.WriteLine("- Check firewall settings on both client and server");
-            Console.WriteLine("- Change Database.Type to 'geopackage' in appsettings.json to use local storage");
+      Console.WriteLine("\nDATABASE CONNECTION TROUBLESHOOTING:");
+      Console.WriteLine("- Check network connectivity to the database server");
+Console.WriteLine("- Verify the database server is running and accessible");
+      Console.WriteLine("- Check firewall settings on both client and server");
+  Console.WriteLine("- Change Database.Type to 'geopackage' in appsettings.json to use local storage");
         }
-        return Task.CompletedTask;
-    }
-
-    // Utility: verify contents of an existing GeoPackage (OGC standard)
-    private static async Task<bool> VerifyGeoPackageAsync(string filePath)
-    {
-        Console.WriteLine("Verifying existing GeoPackage contents...");
-
-        if (!File.Exists(filePath))
-        {
-            Console.WriteLine($"No GeoPackage file found at: {filePath}");
-            Console.WriteLine("Run the simulator first to create data.");
-            return false;
-        }
-
-        try
-        {
-            using var geoPackage = await MapPiloteGeopackageHelper.GeoPackage.OpenAsync(filePath, 4326);
-            var layer = await geoPackage.EnsureLayerAsync("rover_measurements", new Dictionary<string, string>(), 4326);
-
-            var totalCount = await layer.CountAsync();
-            Console.WriteLine($"Total measurements: {totalCount}");
-
-            var fileInfo = new FileInfo(filePath);
-            Console.WriteLine($"File size: {fileInfo.Length / 1024.0:F1} KB");
-            Console.WriteLine($"File path: {fileInfo.FullName}");
-            Console.WriteLine($"Last modified: {fileInfo.LastWriteTime}");
-
-            if (totalCount > 0)
-            {
-                Console.WriteLine("\nSample data (first 3 records):");
-                var readOptions = new MapPiloteGeopackageHelper.ReadOptions(IncludeGeometry: true, OrderBy: "sequence ASC", Limit: 3);
-
-                int count = 0;
-                await foreach (var feature in layer.ReadFeaturesAsync(readOptions))
-                {
-                    var sequence = feature.Attributes["sequence"];
-                    var latitude = feature.Attributes["latitude"];
-                    var longitude = feature.Attributes["longitude"];
-                    var windSpeed = feature.Attributes["wind_speed_mps"];
-                    var windDir = feature.Attributes["wind_direction_deg"];
-
-                    Console.WriteLine($"  {++count}. Seq: {sequence}, Location: ({latitude?[..8]}, {longitude?[..8]}), Wind: {windSpeed}m/s @ {windDir}deg");
-                }
-
-                Console.WriteLine($"\nGeoPackage verification successful! The file contains {totalCount} rover measurements.");
-                Console.WriteLine("You can open this file in QGIS, ArcGIS, or other GIS software to visualize the rover track.");
-                return true;
-            }
-            else
-            {
-                Console.WriteLine("GeoPackage exists but contains no data.");
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error verifying GeoPackage: {ex.Message}");
-            return false;
-        }
+    return Task.CompletedTask;
     }
 }
