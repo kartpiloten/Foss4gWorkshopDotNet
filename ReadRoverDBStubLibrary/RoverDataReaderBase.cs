@@ -34,6 +34,7 @@ public abstract class RoverDataReaderBase : IRoverDataReader
     public abstract Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default);
     public abstract Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default);
     public abstract Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default);
+    public abstract Task<List<RoverMeasurement>> GetNewMeasurementsSinceAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default);
     public abstract Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default);
 
     // Minimal dispose pattern; concrete readers dispose their own resources.

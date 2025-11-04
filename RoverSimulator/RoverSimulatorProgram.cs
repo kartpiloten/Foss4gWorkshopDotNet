@@ -15,6 +15,7 @@ using RoverSimulator.Services;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Npgsql; // PostgreSQL ADO.NET provider for session table queries
+using System.Linq;
 
 namespace RoverSimulator;
 
@@ -88,17 +89,17 @@ var configuration = new ConfigurationBuilder()
          cts.Cancel();
         };
 
-        string sessionName = await GetSessionNameAsync(settings, cts.Token);
+        string sessionName = await GetSessionNameAsync(settings, args, cts.Token);
 
         Console.WriteLine($"\nSession: {sessionName}");
 
         // === ROVER SETUP ===
         Guid roverId = GetRoverId(args) ?? GetRoverIdFromEnv() ?? Guid.NewGuid();
-  string roverName = await GetRoverNameAsync();
+  string roverName = await GetRoverNameAsync(args);
 
         Console.WriteLine($"Rover ID: {roverId}");
     Console.WriteLine($"Rover Name: {roverName}");
-        Console.WriteLine(new string('=', 60));
+   Console.WriteLine(new string('=', 60));
 
         Console.WriteLine($"\nRover simulator starting with {settings.Database.Type.ToUpper()} database.");
       Console.WriteLine("Press Ctrl+C to stop. Press Ctrl+P to toggle progress output.");
@@ -146,25 +147,47 @@ var configuration = new ConfigurationBuilder()
      {
      Console.WriteLine($"\nDatabase connection failed: {ex.Message}");
     Console.WriteLine("\nSimulation cannot proceed without a valid database connection.");
-            Console.WriteLine("Please check your appsettings.json configuration and try again.");
+     Console.WriteLine("Please check your appsettings.json configuration and try again.");
    return;
         }
 
-  // Run main loop
+// Initialize repository BEFORE starting simulation to obtain SessionId
+try
+{
+ Console.WriteLine("\nInitializing database (non-destructive)...");
+ await repository.InitializeAsync(cts.Token);
+ Console.WriteLine("Database initialization completed successfully!");
+}
+catch (Exception ex)
+{
+ Console.WriteLine($"Database initialization failed: {ex.Message}");
+ return;
+}
+
+// Run main loop
         try
         {
-    await RunSimulationAsync(repository, settings, forestReader, forestPolygon, roverId, roverName, Guid.NewGuid(), cts.Token);
-        }
+            // Use the repository's SessionId provided by InitializeAsync
+    await RunSimulationAsync(
+ repository,
+ settings,
+ forestReader,
+ forestPolygon,
+ roverId,
+ roverName,
+ repository.SessionId,
+ cts.Token);
+      }
     catch (OperationCanceledException)
-        {
-          Console.WriteLine("\nSimulation cancelled by user. Saving data and cleaning up...");
+    {
+      Console.WriteLine("\nSimulation cancelled by user. Saving data and cleaning up...");
         }
      catch (Exception ex)
    {
-            Console.WriteLine($"\nError during simulation: {ex.Message}");
+Console.WriteLine($"\nError during simulation: {ex.Message}");
       await HandleSimulationError(ex);
      }
-        finally
+ finally
         {
      Console.WriteLine("\nCleaning up and releasing file locks...");
          repository.Dispose();
@@ -183,58 +206,125 @@ var configuration = new ConfigurationBuilder()
         }
     }
 
-    private static async Task<string> GetSessionNameAsync(SimulatorSettings settings, CancellationToken cancellationToken)
+    private static async Task<string> GetSessionNameAsync(SimulatorSettings settings, string[] args, CancellationToken cancellationToken)
     {
-        // List existing sessions (database-type aware)
+        // Check for --session command-line argument first
+   var sessionFromArgs = GetSessionNameFromArgs(args);
+        if (!string.IsNullOrEmpty(sessionFromArgs))
+   {
+     // Check for special "auto" keyword
+        if (sessionFromArgs.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            {
+           var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+        var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+            Console.WriteLine($"Auto-generated session name: {autoSessionName}");
+                return autoSessionName;
+      }
+        
+            Console.WriteLine($"Using session from command line: {sessionFromArgs}");
+            return sessionFromArgs;
+        }
+
+   // Check for AUTO_SESSION environment variable
+        var autoSession = Environment.GetEnvironmentVariable("AUTO_SESSION");
+     if (!string.IsNullOrEmpty(autoSession) && autoSession.Equals("true", StringComparison.OrdinalIgnoreCase))
+        {
+      // Generate automatic unique session name
+  var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+         var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+            Console.WriteLine($"Auto-generated session name: {autoSessionName}");
+            return autoSessionName;
+        }
+
+
+// List existing sessions (database-type aware)
         var existingSessions = await ListAvailableSessionsAsync(settings, showOutput: true, cancellationToken);
 
-        Console.WriteLine("\nWould you like to join an existing session or create a new one?");
-      Console.Write("Type 'new' for a new session, or enter an existing session name: ");
+  Console.WriteLine("\nWould you like to join an existing session or create a new one?");
+     Console.Write("Type 'new' for a new session, 'auto' for auto-generated name, or enter an existing session name: ");
         
         string? input = Console.ReadLine()?.Trim();
 
         if (string.IsNullOrEmpty(input))
         {
-            Console.WriteLine("No input provided. Creating new session...");
+       Console.WriteLine("No input provided. Creating new session...");
    input = "new";
-        }
+     }
 
-        if (input.Equals("new", StringComparison.OrdinalIgnoreCase))
+  if (input.Equals("auto", StringComparison.OrdinalIgnoreCase))
+ {
+    // Generate automatic unique session name
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+         var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+     var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+   Console.WriteLine($"\nAuto-generated session name: {autoSessionName}");
+   return autoSessionName;
+        }
+      else if (input.Equals("new", StringComparison.OrdinalIgnoreCase))
         {
-      Console.Write("\nName the new session (alphanumeric, no spaces): ");
+        Console.Write("\nName the new session (alphanumeric, no spaces), or 'auto' for automatic: ");
             string? newSessionName = Console.ReadLine()?.Trim();
 
-      while (string.IsNullOrWhiteSpace(newSessionName) || !IsValidSessionName(newSessionName))
+            if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("Invalid session name. Use only letters, numbers, and underscores.");
-   Console.Write("Name the new session: ");
-                newSessionName = Console.ReadLine()?.Trim();
-}
+   var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+     var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+    newSessionName = $"auto_{timestamp}_{randomSuffix}";
+Console.WriteLine($"Auto-generated session name: {newSessionName}");
+     return newSessionName;
+        }
 
-    return SanitizeSessionName(newSessionName!);
+       while (!IsValidSessionName(newSessionName))
+            {
+      Console.WriteLine("Invalid session name. Use only letters, numbers, and underscores.");
+     Console.Write("Name the new session, or 'auto' for automatic: ");
+      newSessionName = Console.ReadLine()?.Trim();
+        
+    if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                {
+       var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+       var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+          newSessionName = $"auto_{timestamp}_{randomSuffix}";
+            Console.WriteLine($"Auto-generated session name: {newSessionName}");
+         return newSessionName;
+     }
+      }
+
+          return SanitizeSessionName(newSessionName!);
         }
         else
-        {
-       // Validate that the session exists
-      if (existingSessions.Contains(input, StringComparer.OrdinalIgnoreCase))
+     {
+   // Validate that the session exists (case-insensitive)
+      if (existingSessions.Any(s => s.Equals(input, StringComparison.OrdinalIgnoreCase)))
    {
-         return input;
+ return input;
     }
 else
-       {
-                Console.WriteLine($"\nWarning: Session '{input}' not found. Creating new session with this name...");
+ {
+           Console.WriteLine($"\nWarning: Session '{input}' not found. Creating new session with this name...");
        return SanitizeSessionName(input);
-            }
+    }
    }
     }
 
-    private static async Task<string> GetRoverNameAsync()
+    private static async Task<string> GetRoverNameAsync(string[] args)
     {
+        // Check for --rover-name command-line argument first
+   var roverNameFromArgs = GetRoverNameFromArgs(args);
+        if (!string.IsNullOrEmpty(roverNameFromArgs))
+        {
+   Console.WriteLine($"Using rover name from command line: {roverNameFromArgs}");
+      return roverNameFromArgs;
+  }
+
+  // Interactive mode
     Console.Write("\nWhat is the rover dog's name? ");
-        string? name = Console.ReadLine()?.Trim();
+  string? name = Console.ReadLine()?.Trim();
 
         while (string.IsNullOrWhiteSpace(name))
-        {
+   {
  Console.WriteLine("Please provide a name for the rover dog.");
  Console.Write("Rover dog's name: ");
      name = Console.ReadLine()?.Trim();
@@ -379,19 +469,6 @@ var fileName = Path.GetFileNameWithoutExtension(file);
          await HandleGeoPackageFileLocks(geoRepo);
         }
 
-      // Initialize storage (non-destructive)
-Console.WriteLine("\nInitializing database (non-destructive)...");
-        try
-        {
-      await repository.InitializeAsync(cancellationToken);
-     Console.WriteLine("Database initialization completed successfully!");
-        }
-      catch (Exception ex)
-        {
-   Console.WriteLine($"Database initialization failed: {ex.Message}");
-     throw;
-   }
-
         // Get forest polygon if not already loaded
         if (forestPolygon == null)
         {
@@ -523,15 +600,15 @@ Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
   // ...existing helper methods...
     private static Guid? GetRoverId(string[] args)
     {
-        for (int i = 0; i < args.Length; i++)
+   for (int i = 0; i < args.Length; i++)
         {
           if (string.Equals(args[i], "--rover", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
-            {
+     {
           if (Guid.TryParse(args[i + 1], out var id))
   return id;
     }
   }
-        return null;
+  return null;
     }
 
     private static Guid? GetRoverIdFromEnv()
@@ -540,14 +617,38 @@ Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
  return Guid.TryParse(env, out var id) ? id : null;
     }
 
+    private static string? GetSessionNameFromArgs(string[] args)
+ {
+      for (int i =0; i < args.Length; i++)
+ {
+ if (string.Equals(args[i], "--session", StringComparison.OrdinalIgnoreCase) && i +1 < args.Length)
+  {
+     return args[i + 1];
+ }
+    }
+        return null;
+    }
+
+    private static string? GetRoverNameFromArgs(string[] args)
+    {
+ for (int i =0; i < args.Length; i++)
+ {
+ if (string.Equals(args[i], "--rover-name", StringComparison.OrdinalIgnoreCase) && i +1 < args.Length)
+ {
+ return args[i +1];
+ }
+ }
+ return null;
+ }
+
     private static string GetSolutionDirectory()
     {
-        var currentDir = Directory.GetCurrentDirectory();
+    var currentDir = Directory.GetCurrentDirectory();
         var directory = new DirectoryInfo(currentDir);
 
         while (directory != null && !directory.GetFiles("*.sln").Any())
    {
-         directory = directory.Parent;
+       directory = directory.Parent;
  }
 
         return directory?.FullName ?? currentDir;
@@ -627,9 +728,9 @@ Console.WriteLine("Press Ctrl+C to stop simulation and save data...");
         {
   Console.WriteLine("\nTROUBLESHOOTING TIPS:");
   Console.WriteLine("- Check for other RoverSimulator instances in Task Manager");
-        Console.WriteLine("- Close QGIS, ArcGIS, or other GIS applications");
-  Console.WriteLine("- Wait a few seconds and try again");
-  Console.WriteLine("- If problem persists, restart your computer");
+ Console.WriteLine("- Close QGIS, ArcGIS, or other GIS applications");
+ Console.WriteLine("- Wait a few seconds and try again");
+ Console.WriteLine("- If problem persists, restart your computer");
  }
    else if (ex.Message.Contains("timeout") || ex.Message.Contains("connection"))
         {

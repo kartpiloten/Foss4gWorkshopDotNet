@@ -14,34 +14,41 @@ namespace ReadRoverDBStubLibrary;
 /// Notes:
 /// - Async methods use CancellationToken (async/await) to avoid blocking.
 /// - IDisposable to allow implementations to free DB/file resources.
-/// - Geometry is an NTS Point (commonly WGS84/EPSG:4326, PostGIS/GeoPackage friendly).
+/// - Geometry is an NTS Point (commonly WGS84/EPSG:4326), interoperable with PostGIS/GeoPackage.
 /// </summary>
 public interface IRoverDataReader : IDisposable
 {
-    /// <summary>
-    /// Initializes the reader connection (non-blocking async).
-    /// </summary>
-    Task InitializeAsync(CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Returns total number of measurements.
-    /// </summary>
-    Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Returns all measurements, optionally filtered (provider-specific whereClause).
-    /// </summary>
-    Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Returns measurements with Sequence greater than lastSequence.
-    /// </summary>
-    Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default);
-    
-    /// <summary>
-    /// Returns the most recent measurement or null if none.
-    /// </summary>
-    Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default);
+ /// <summary>
+ /// Initializes the reader connection (non-blocking async).
+ /// </summary>
+ Task InitializeAsync(CancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// Returns total number of measurements.
+ /// </summary>
+ Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// Returns all measurements, optionally filtered (provider-specific whereClause).
+ /// </summary>
+ Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// Returns measurements with Sequence greater than lastSequence.
+ /// NOTE: Sequence may be per-rover; prefer timestamp-based method for multi-rover sessions.
+ /// </summary>
+ Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// Returns measurements recorded after the specified timestamp (UTC ISO-8601).
+ /// Preferred for multi-rover scenarios where 'sequence' is not global.
+ /// </summary>
+ Task<List<RoverMeasurement>> GetNewMeasurementsSinceAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default);
+ 
+ /// <summary>
+ /// Returns the most recent measurement or null if none.
+ /// </summary>
+ Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -51,13 +58,13 @@ public interface IRoverDataReader : IDisposable
 /// - Suitable for display in Blazor and for GIS export (GeoJSON, etc.).
 /// </summary>
 public record RoverMeasurement(
-    Guid RoverId,
-    string RoverName,
-    Guid SessionId,
-    int Sequence,
-    DateTimeOffset RecordedAt,
-    double Latitude,
-    double Longitude,
-    short WindDirectionDeg,
-    float WindSpeedMps,
-    Point Geometry);
+ Guid RoverId,
+ string RoverName,
+ Guid SessionId,
+ int Sequence,
+ DateTimeOffset RecordedAt,
+ double Latitude,
+ double Longitude,
+ short WindDirectionDeg,
+ float WindSpeedMps,
+ Point Geometry);

@@ -52,9 +52,14 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
 
    Console.WriteLine($"Creating GeoPackage for session '{_sessionTableName}': {_dbPath}");
  
+      // CRITICAL FIX: Generate a session_id for this GeoPackage session
+     // For GeoPackage, each file IS a session, so we generate a unique ID
+   _sessionId = Guid.NewGuid();
+  Console.WriteLine($"? Generated session ID for GeoPackage: {_sessionId}");
+
       // Open/create the GeoPackage - WAL mode will be enabled automatically by SQLite for better concurrent access
-        _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326); // WGS84 CRS
-        Console.WriteLine("GeoPackage opened with SQLite default settings (WAL mode for concurrency)");
+     _geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326); // WGS84 CRS
+     Console.WriteLine("GeoPackage opened with SQLite default settings (WAL mode for concurrency)");
 
  var measurementSchema = new Dictionary<string, string>
  {
@@ -72,7 +77,7 @@ public class GeoPackageRoverDataRepository : RoverDataRepositoryBase
   Console.WriteLine($"Creating layer 'rover_measurements' in session '{_sessionTableName}'...");
   _measurementsLayer = await _geoPackage.EnsureLayerAsync("rover_measurements", measurementSchema,4326);
 
-          Console.WriteLine($"GeoPackage initialized successfully for session '{_sessionTableName}'!");
+    Console.WriteLine($"GeoPackage initialized successfully for session '{_sessionTableName}'!");
  Console.WriteLine($"File: {Path.GetFileName(_dbPath)}");
  Console.WriteLine($"Location: {_folderPath}");
  }

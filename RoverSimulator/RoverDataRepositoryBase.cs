@@ -2,6 +2,7 @@
  The functionallity in this file is:
  - Provide an abstract base for repositories with a shared connection string and dispose pattern.
  - Ensure all implementations support async Initialize/Reset/Insert operations.
+ - NOW: Provides SessionId property that implementations must set.
  - Keep the base minimal to focus on learning the concrete providers.
 */
 
@@ -14,12 +15,19 @@ public abstract class RoverDataRepositoryBase : IRoverDataRepository
     protected readonly string _connectionString;
     protected readonly string _sessionTableName;
     protected bool _disposed = false;
+    protected Guid _sessionId;
 
     protected RoverDataRepositoryBase(string connectionString, string sessionTableName)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
         _sessionTableName = sessionTableName ?? throw new ArgumentNullException(nameof(sessionTableName));
     }
+
+    /// <summary>
+    /// Gets the session ID for this repository.
+    /// Set by implementations during InitializeAsync.
+    /// </summary>
+    public Guid SessionId => _sessionId;
 
     public abstract Task InitializeAsync(CancellationToken cancellationToken = default);
     public abstract Task ResetDatabaseAsync(CancellationToken cancellationToken = default);

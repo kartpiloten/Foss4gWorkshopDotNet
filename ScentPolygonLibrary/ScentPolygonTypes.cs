@@ -61,12 +61,78 @@ public class ScentPolygonResult
 }
 
 /// <summary>
+/// Tracks a unified polygon for a specific rover, updated incrementally
+/// </summary>
+public class RoverUnifiedPolygon
+{
+    /// <summary>
+    /// Unique identifier for the rover
+    /// </summary>
+    public Guid RoverId { get; init; }
+
+    /// <summary>
+    /// Name of the rover dog
+    /// </summary>
+  public string RoverName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The current unified polygon for this rover (incrementally updated)
+    /// </summary>
+    public Polygon UnifiedPolygon { get; set; } = default!;
+
+    /// <summary>
+    /// Number of individual polygons combined into this unified polygon
+  /// </summary>
+    public int PolygonCount { get; set; }
+
+    /// <summary>
+/// Total area of the unified polygon in square meters
+    /// </summary>
+    public double TotalAreaM2 { get; set; }
+
+    /// <summary>
+    /// Latest sequence number included in this unified polygon
+    /// </summary>
+    public int LatestSequence { get; set; }
+
+    /// <summary>
+    /// Time of the earliest measurement included
+    /// </summary>
+    public DateTimeOffset EarliestMeasurement { get; set; }
+
+    /// <summary>
+    /// Time of the latest measurement included
+    /// </summary>
+    public DateTimeOffset LatestMeasurement { get; set; }
+
+    /// <summary>
+    /// Average latitude for area calculations
+    /// </summary>
+    public double AverageLatitude { get; set; }
+
+    /// <summary>
+  /// Version number incremented on each update
+/// </summary>
+    public int Version { get; set; }
+
+    /// <summary>
+    /// Lock object for thread-safe updates
+ /// </summary>
+  public object Lock { get; } = new();
+
+/// <summary>
+    /// Indicates whether the unified polygon geometry is valid
+    /// </summary>
+ public bool IsValid => UnifiedPolygon?.IsValid ?? false;
+}
+
+/// <summary>
 /// Represents a unified scent polygon combining multiple individual scent polygons
 /// </summary>
 public class UnifiedScentPolygon
 {
     /// <summary>
-    /// The combined polygon geometry representing the total coverage area (NTS Polygon)
+ /// The combined polygon geometry representing the total coverage area (NTS Polygon)
     /// </summary>
     public Polygon Polygon { get; init; } = default!;
 
@@ -138,7 +204,7 @@ public class UnifiedScentPolygon
 
     /// <summary>
 /// Number of distinct rovers represented
-    /// </summary>
+  /// </summary>
     public int RoverCount => RoverIds.Count;
 }
 
@@ -162,7 +228,7 @@ public class ScentPolygonUpdateEventArgs : EventArgs
 /// </summary>
 public class ScentPolygonStatusEventArgs : EventArgs
 {
-    public int TotalPolygonCount { get; init; }
+ public int TotalPolygonCount { get; init; }
     public ScentPolygonResult? LatestPolygon { get; init; }
     public string DataSource { get; init; } = string.Empty;
 
@@ -179,5 +245,5 @@ public class ForestCoverageEventArgs : EventArgs
 {
     public int SearchedAreaM2 { get; init; }
     public int ForestAreaM2 { get; init; }
-    public double PercentageSearched => ForestAreaM2 > 0 ? (SearchedAreaM2 / (double)ForestAreaM2) * 100.0 : 0;
+ public double PercentageSearched => ForestAreaM2 > 0 ? (SearchedAreaM2 / (double)ForestAreaM2) * 100.0 : 0;
 }

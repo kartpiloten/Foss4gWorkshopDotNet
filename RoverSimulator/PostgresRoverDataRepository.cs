@@ -27,7 +27,7 @@ public class PostgresRoverDataRepository : RoverDataRepositoryBase
 {
 Console.WriteLine("Initializing PostgreSQL connection...");
    
-         _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
+ _dataSource = new NpgsqlDataSourceBuilder(_connectionString)
      .UseNetTopologySuite() // Enable PostGIS <-> NTS (NetTopologySuite) geometry mapping
        .Build();
 
@@ -45,7 +45,7 @@ CREATE SCHEMA IF NOT EXISTS roverdata;
 -- Sessions tracking table (registry of all sessions)
 CREATE TABLE IF NOT EXISTS roverdata.rover_sessions (
     id SERIAL PRIMARY KEY,
-    session_name TEXT UNIQUE NOT NULL,
+  session_name TEXT UNIQUE NOT NULL,
     session_id UUID NOT NULL DEFAULT gen_random_uuid(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_updated TIMESTAMPTZ DEFAULT NOW()
@@ -79,8 +79,8 @@ CREATE INDEX IF NOT EXISTS ix_rover_points_session_rover
 CREATE INDEX IF NOT EXISTS ix_rover_points_geom
   ON roverdata.rover_points USING GIST (geom);
 ";
-   await using var createCmd = new NpgsqlCommand(createSql, _connection);
-            await createCmd.ExecuteNonQueryAsync(cancellationToken);
+ await using var createCmd = new NpgsqlCommand(createSql, _connection);
+  await createCmd.ExecuteNonQueryAsync(cancellationToken);
 
        // Register this session in the sessions table and get the session_id
  var registerSessionSql = @"
@@ -89,16 +89,25 @@ VALUES (@session_name)
 ON CONFLICT (session_name) DO UPDATE SET last_updated = NOW()
 RETURNING session_id;";
     
-   await using var registerCmd = new NpgsqlCommand(registerSessionSql, _connection);
+ await using var registerCmd = new NpgsqlCommand(registerSessionSql, _connection);
           registerCmd.Parameters.AddWithValue("@session_name", _sessionTableName);
 var retrievedSessionId = await registerCmd.ExecuteScalarAsync(cancellationToken);
        
-    Console.WriteLine($"Session '{_sessionTableName}' registered/updated. Session ID: {retrievedSessionId}");
+    // CRITICAL FIX: Store the session_id from the database!
+            if (retrievedSessionId is Guid sessionGuid)
+        {
+      _sessionId = sessionGuid;
+  Console.WriteLine($"? Session '{_sessionTableName}' registered. Session ID: {_sessionId}");
+  }
+  else
+            {
+  throw new InvalidOperationException($"Failed to retrieve session_id from database. Got: {retrievedSessionId?.GetType().Name ?? "null"}");
+        }
 
       Console.WriteLine("Reloading PostGIS types...");
 
  // PostGIS types (e.g., geometry) were just created; reload type info for this connection
-       await _connection.ReloadTypesAsync(cancellationToken);
+   await _connection.ReloadTypesAsync(cancellationToken);
 
    Console.WriteLine("Preparing insert command...");
   
@@ -111,7 +120,7 @@ VALUES (@rover_id, @rover_name, @session_id, @recorded_at, @latitude, @longitude
  _insertCommand = new NpgsqlCommand(insertSql, _connection);
       _insertCommand.Parameters.Add("@rover_id", NpgsqlDbType.Uuid);
 _insertCommand.Parameters.Add("@rover_name", NpgsqlDbType.Text);
-          _insertCommand.Parameters.Add("@session_id", NpgsqlDbType.Uuid);
+    _insertCommand.Parameters.Add("@session_id", NpgsqlDbType.Uuid);
        _insertCommand.Parameters.Add("@recorded_at", NpgsqlDbType.TimestampTz);
  _insertCommand.Parameters.Add("@latitude", NpgsqlDbType.Double);
     _insertCommand.Parameters.Add("@longitude", NpgsqlDbType.Double);
@@ -120,17 +129,17 @@ _insertCommand.Parameters.Add("@rover_name", NpgsqlDbType.Text);
       _insertCommand.Parameters.Add("@geom", NpgsqlDbType.Geometry);
  _insertCommand.Parameters.Add("@sequence", NpgsqlDbType.Bigint);
 
-Console.WriteLine($"PostgreSQL repository initialization completed successfully for session '{_sessionTableName}'!");
+Console.WriteLine($"PostgreSQL repository initialization completed successfully!");
   }
         catch (OperationCanceledException)
     {
  Console.WriteLine("PostgreSQL initialization cancelled.");
-        throw;
+   throw;
       }
   catch (TimeoutException ex)
         {
     throw new TimeoutException($"PostgreSQL connection timed out during initialization: {ex.Message}", ex);
-        }
+    }
    catch (NpgsqlException ex) when (ex.Message.Contains("timeout"))
  {
    throw new TimeoutException($"PostgreSQL connection timed out: {ex.Message}", ex);
@@ -142,7 +151,7 @@ Console.WriteLine($"PostgreSQL repository initialization completed successfully 
         catch (Exception ex)
     {
    Console.WriteLine($"Error during PostgreSQL initialization: {ex.Message}");
-     throw;
+ throw;
     }
     }
 
@@ -199,38 +208,42 @@ WHERE session_id = (SELECT session_id FROM roverdata.rover_sessions WHERE sessio
 
         try
         {
-         _insertCommand.Parameters["@rover_id"].Value = measurement.RoverId;
-    _insertCommand.Parameters["@rover_name"].Value = measurement.RoverName;
-   _insertCommand.Parameters["@session_id"].Value = measurement.SessionId;
-  _insertCommand.Parameters["@recorded_at"].Value = measurement.RecordedAt;
-   _insertCommand.Parameters["@latitude"].Value = measurement.Latitude;
+ // Safety: if caller forgot to pass a valid session id, use the repository's session
+ var sessId = measurement.SessionId == Guid.Empty ? _sessionId : measurement.SessionId;
+
+ _insertCommand.Parameters["@rover_id"].Value = measurement.RoverId;
+ _insertCommand.Parameters["@rover_name"].Value = measurement.RoverName;
+ _insertCommand.Parameters["@session_id"].Value = sessId;
+ _insertCommand.Parameters["@recorded_at"].Value = measurement.RecordedAt;
+ _insertCommand.Parameters["@latitude"].Value = measurement.Latitude;
 _insertCommand.Parameters["@longitude"].Value = measurement.Longitude;
-            _insertCommand.Parameters["@wind_direction_deg"].Value = measurement.WindDirectionDeg;
-        _insertCommand.Parameters["@wind_speed_mps"].Value = measurement.WindSpeedMps;
-       _insertCommand.Parameters["@geom"].Value = measurement.Geometry; // NTS -> PostGIS via Npgsql
-            _insertCommand.Parameters["@sequence"].Value = measurement.Sequence;
+ _insertCommand.Parameters["@wind_direction_deg"].Value = measurement.WindDirectionDeg;
+ _insertCommand.Parameters["@wind_speed_mps"].Value = measurement.WindSpeedMps;
+ _insertCommand.Parameters["@geom"].Value = measurement.Geometry; // NTS -> PostGIS via Npgsql
+ _insertCommand.Parameters["@sequence"].Value = measurement.Sequence;
 
  await _insertCommand.ExecuteNonQueryAsync(cancellationToken);
-  }
-  catch (OperationCanceledException)
-        {
-            throw;
  }
-      catch (TimeoutException ex)
+ catch (OperationCanceledException)
+ {
+ throw;
+ }
+ catch (TimeoutException ex)
 {
-      throw new TimeoutException($"Insert operation timed out: {ex.Message}", ex);
-   }
-        catch (NpgsqlException ex) when (ex.Message.Contains("timeout"))
-        {
-    throw new TimeoutException($"Insert operation timed out: {ex.Message}", ex);
-        }
-   catch (Exception ex)
-        {
+ throw new TimeoutException($"Insert operation timed out: {ex.Message}", ex);
+ }
+ catch (NpgsqlException ex) when (ex.Message.Contains("timeout"))
+ {
+ throw new TimeoutException($"Insert operation timed out: {ex.Message}", ex);
+ }
+ catch (Exception ex)
+ {
 throw new InvalidOperationException($"Failed to insert measurement: {ex.Message}", ex);
-        }
-    }
+ }
+ }
+   
 
- protected override void Dispose(bool disposing)
+    protected override void Dispose(bool disposing)
     {
 if (!_disposed)
       {

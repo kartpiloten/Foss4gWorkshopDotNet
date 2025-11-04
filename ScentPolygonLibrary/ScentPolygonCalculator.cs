@@ -79,29 +79,31 @@ public static class ScentPolygonCalculator
         GeometryFactory? geometryFactory = null)
     {
         if (!polygons.Any())
-            throw new ArgumentException("Cannot create unified polygon from empty polygon list", nameof(polygons));
+      throw new ArgumentException("Cannot create unified polygon from empty polygon list", nameof(polygons));
 
         geometryFactory ??= DefaultGeometryFactory;
 
         // Keep only valid polygons (NTS validity)
-        var valid = polygons.Where(p => p.IsValid).ToList();
-        if (!valid.Any())
-            throw new InvalidOperationException("No valid polygons found to create unified polygon");
+      var valid = polygons.Where(p => p.IsValid).ToList();
+ if (!valid.Any())
+          throw new InvalidOperationException("No valid polygons found to create unified polygon");
 
         // Basic stats (LINQ): shows small .NET concepts for learners
         var individualAreasSum = valid.Sum(p => p.ScentAreaM2);
-        var avgWindSpeed = valid.Average(p => p.WindSpeedMps);
-        var windSpeedRange = (valid.Min(p => p.WindSpeedMps), valid.Max(p => p.WindSpeedMps));
-        var sessionIds = valid.Select(p => p.SessionId).Distinct().ToList();
+      var avgWindSpeed = valid.Average(p => p.WindSpeedMps);
+   var windSpeedRange = (valid.Min(p => p.WindSpeedMps), valid.Max(p => p.WindSpeedMps));
+    var sessionIds = valid.Select(p => p.SessionId).Distinct().ToList();
+     var roverIds = valid.Select(p => p.RoverId).Distinct().ToList();
+     var roverNames = valid.Select(p => p.RoverName).Distinct().ToList();
         var earliestTime = valid.Min(p => p.RecordedAt);
-        var latestTime = valid.Max(p => p.RecordedAt);
+      var latestTime = valid.Max(p => p.RecordedAt);
 
         // Simple union: let NTS do the heavy lifting
-        var geoms = valid.Select(v => (Geometry)v.Polygon).ToList();
-        var collection = geometryFactory.BuildGeometry(geoms);
+      var geoms = valid.Select(v => (Geometry)v.Polygon).ToList();
+   var collection = geometryFactory.BuildGeometry(geoms);
         var unioned = collection.Union();
 
-        // Normalize to a single Polygon for the library contract
+     // Normalize to a single Polygon for the library contract
         Polygon finalPolygon;
         if (unioned is Polygon poly)
         {
@@ -109,31 +111,95 @@ public static class ScentPolygonCalculator
         }
         else if (unioned is MultiPolygon mp)
         {
-            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
+     finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
         }
         else
         {
-            // Fallback: convex hull of the collection (very robust)
-            finalPolygon = collection.ConvexHull() as Polygon
-                ?? geometryFactory.CreatePolygon();
+      // Fallback: convex hull of the collection (very robust)
+       finalPolygon = collection.ConvexHull() as Polygon
+      ?? geometryFactory.CreatePolygon();
         }
         finalPolygon.SRID = 4326;
 
         // Area approximation (degrees to meters) at average latitude
-        var avgLat = valid.Average(p => p.Latitude);
-        var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
+  var avgLat = valid.Average(p => p.Latitude);
+ var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
 
         return new UnifiedScentPolygon
-        {
-            Polygon = finalPolygon,
-            PolygonCount = valid.Count,
-            TotalAreaM2 = totalAreaM2,
-            IndividualAreasSum = individualAreasSum,
+  {
+        Polygon = finalPolygon,
+        PolygonCount = valid.Count,
+  TotalAreaM2 = totalAreaM2,
+   IndividualAreasSum = individualAreasSum,
             EarliestMeasurement = earliestTime,
+     LatestMeasurement = latestTime,
+  AverageWindSpeedMps = avgWindSpeed,
+      WindSpeedRange = windSpeedRange,
+            SessionIds = sessionIds,
+    RoverIds = roverIds,
+            RoverNames = roverNames
+      };
+    }
+
+  /// <summary>
+    /// Creates a unified polygon from multiple rover-specific unified polygons (combines all rovers)
+    /// </summary>
+    public static UnifiedScentPolygon CreateUnifiedFromRoverPolygons(
+        List<RoverUnifiedPolygon> roverPolygons,
+        GeometryFactory? geometryFactory = null)
+    {
+        if (!roverPolygons.Any())
+    throw new ArgumentException("Cannot create unified polygon from empty rover polygon list", nameof(roverPolygons));
+
+        geometryFactory ??= DefaultGeometryFactory;
+
+        // Keep only valid polygons
+        var valid = roverPolygons.Where(p => p.IsValid).ToList();
+        if (!valid.Any())
+            throw new InvalidOperationException("No valid rover polygons found to create unified polygon");
+
+        // Combine all rover polygons into one
+        var geoms = valid.Select(v => (Geometry)v.UnifiedPolygon).ToList();
+        var collection = geometryFactory.BuildGeometry(geoms);
+        var unioned = collection.Union();
+
+    // Normalize to a single Polygon
+        Polygon finalPolygon;
+        if (unioned is Polygon poly)
+    {
+            finalPolygon = poly;
+     }
+     else if (unioned is MultiPolygon mp)
+ {
+            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
+        }
+        else
+   {
+          finalPolygon = collection.ConvexHull() as Polygon ?? geometryFactory.CreatePolygon();
+        }
+        finalPolygon.SRID = 4326;
+
+   // Calculate total stats
+        var totalPolygonCount = valid.Sum(p => p.PolygonCount);
+ var individualAreasSum = valid.Sum(p => p.TotalAreaM2);
+        var avgLat = valid.Average(p => p.AverageLatitude);
+        var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
+        var earliestTime = valid.Min(p => p.EarliestMeasurement);
+  var latestTime = valid.Max(p => p.LatestMeasurement);
+
+        return new UnifiedScentPolygon
+{
+            Polygon = finalPolygon,
+        PolygonCount = totalPolygonCount,
+ TotalAreaM2 = totalAreaM2,
+   IndividualAreasSum = individualAreasSum,
+  EarliestMeasurement = earliestTime,
             LatestMeasurement = latestTime,
-            AverageWindSpeedMps = avgWindSpeed,
-            WindSpeedRange = windSpeedRange,
-            SessionIds = sessionIds
+      AverageWindSpeedMps = 0, // Not applicable when combining rover polygons
+   WindSpeedRange = (0, 0),  // Not applicable when combining rover polygons
+    SessionIds = new List<Guid>(), // Could be extracted but not critical
+            RoverIds = valid.Select(p => p.RoverId).ToList(),
+ RoverNames = valid.Select(p => p.RoverName).ToList()
         };
     }
 

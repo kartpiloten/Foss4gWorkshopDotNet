@@ -21,6 +21,8 @@ public class NullRoverDataReader : IRoverDataReader
         => Task.FromResult(new List<RoverMeasurement>()); // empty list
     public Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
         => Task.FromResult(new List<RoverMeasurement>()); // empty list
+    public Task<List<RoverMeasurement>> GetNewMeasurementsSinceAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default)
+        => Task.FromResult(new List<RoverMeasurement>()); // empty list
     public Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<RoverMeasurement?>(null); // no latest measurement
     public void Dispose() { } // nothing to dispose

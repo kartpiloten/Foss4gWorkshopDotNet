@@ -135,6 +135,33 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         }
     }
 
+    public override async Task<List<RoverMeasurement>> GetNewMeasurementsSinceAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default)
+    {
+        var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
+        try
+        {
+            var iso = sinceUtc.ToString("O");
+            var readOptions = new ReadOptions(
+                IncludeGeometry: true,
+                WhereClause: $"recorded_at > '{iso}'",
+                OrderBy: "recorded_at ASC"
+            );
+
+            var measurements = new List<RoverMeasurement>();
+
+            await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
+            {
+                measurements.Add(ConvertToRoverMeasurement(feature));
+            }
+
+            return measurements;
+        }
+        finally
+        {
+            geoPackage.Dispose();
+        }
+    }
+
     public override async Task<RoverMeasurement?> GetLatestMeasurementAsync(CancellationToken cancellationToken = default)
     {
         var (geoPackage, layer) = await OpenGeoPackageAsync(cancellationToken);
