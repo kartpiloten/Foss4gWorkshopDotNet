@@ -82,13 +82,13 @@ while (true)
     {
         // Get the most recent measurement asynchronously (async/await)
         var latest = await reader.GetLatestMeasurementAsync();
-        
+
         if (latest != null)
         {
             // Check if sequence number increased
             string newDataMarker = latest.Sequence > previousSequence ? " *** NEW ***" : "";
             previousSequence = latest.Sequence;
-            
+
             Console.WriteLine(
                 $"{DateTime.Now:HH:mm:ss.fff,-12} " +
                 $"{latest.Sequence,-10} " +
@@ -103,7 +103,7 @@ while (true)
         {
             Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff,-12} NO DATA");
         }
-        
+
         await Task.Delay(displayIntervalMs); // Asynchronously wait between polls
     }
     catch (Exception ex)

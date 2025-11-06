@@ -73,18 +73,18 @@ public static class WindPolygonVerifier
             
             if (geometryTypes.Contains("Point"))
             {
-                Console.WriteLine("  ??  WARNING: Point geometries detected! This explains why QGIS shows points.");
+                Console.WriteLine("  WARNING: Point geometries detected! This explains why QGIS shows points.");
                 Console.WriteLine("     The layer should contain only Polygon geometries.");
             }
             
             if (!geometryTypes.Contains("Polygon"))
             {
-                Console.WriteLine("  ? ERROR: No Polygon geometries found! This is the root cause of the QGIS issue.");
+                Console.WriteLine("  ERROR: No Polygon geometries found! This is the root cause of the QGIS issue.");
                 Console.WriteLine("     The layer creation process may have failed to preserve polygon geometry type.");
             }
             else
             {
-                Console.WriteLine("  ? Polygon geometries detected - layer should work correctly in QGIS.");
+                Console.WriteLine("  Polygon geometries detected - layer should work correctly in QGIS.");
             }
 
             // Statistics tracking
@@ -122,7 +122,7 @@ public static class WindPolygonVerifier
                 // Check geometry validity and type
                 if (feature.Geometry != null)
                 {
-                    geometryStats[feature.Geometry.IsValid ? "Valid" : "Invalid"]++;
+                    geometryStats[feature.Geometry.IsValid  "Valid" : "Invalid"]++;
                     
                     switch (feature.Geometry)
                     {
@@ -148,23 +148,23 @@ public static class WindPolygonVerifier
             Console.WriteLine($"  Invalid geometries: {geometryStats["Invalid"]}");
             Console.WriteLine($"  Polygon type: {geometryStats["Polygon"]}");
             Console.WriteLine($"  MultiPolygon type: {geometryStats["MultiPolygon"]}");
-            Console.WriteLine($"  Point type: {geometryStats["Point"]} ??");
+            Console.WriteLine($"  Point type: {geometryStats["Point"]} ");
             Console.WriteLine($"  Other geometry types: {geometryStats["Other"]}");
             
             if (geometryStats["Point"] > 0)
             {
-                Console.WriteLine($"\n? QGIS ISSUE IDENTIFIED: {geometryStats["Point"]} Point geometries found!");
+                Console.WriteLine($"\n QGIS ISSUE IDENTIFIED: {geometryStats["Point"]} Point geometries found!");
                 Console.WriteLine("   This is why QGIS displays the layer as points instead of polygons.");
                 Console.WriteLine("   The polygon creation process needs to be fixed.");
             }
             else if (geometryStats["Invalid"] > 0)
             {
-                Console.WriteLine($"??  WARNING: {geometryStats["Invalid"]} invalid geometries detected!");
+                Console.WriteLine($"  WARNING: {geometryStats["Invalid"]} invalid geometries detected!");
                 Console.WriteLine("   This may cause issues in QGIS. Consider regenerating with fixed geometry.");
             }
             else if (geometryStats["Polygon"] == totalCount)
             {
-                Console.WriteLine("? All geometries are valid polygons and should work perfectly in QGIS!");
+                Console.WriteLine(" All geometries are valid polygons and should work perfectly in QGIS!");
             }
 
             // Display attribute statistics
@@ -224,7 +224,7 @@ public static class WindPolygonVerifier
                 if (feature.Geometry != null)
                 {
                     var geomType = feature.Geometry.GeometryType;
-                    var isValid = feature.Geometry.IsValid ? "? Valid" : "? Invalid";
+                    var isValid = feature.Geometry.IsValid  " Valid" : " Invalid";
                     var srid = feature.Geometry.SRID;
                     
                     Console.WriteLine($"     Geometry: {geomType}, SRID: {srid}, {isValid}");
@@ -243,18 +243,18 @@ public static class WindPolygonVerifier
                                 var validationError = validator.ValidationError;
                                 if (validationError != null)
                                 {
-                                    Console.WriteLine($"     ??  Geometry error: {validationError.Message} at {validationError.Coordinate}");
+                                    Console.WriteLine($"       Geometry error: {validationError.Message} at {validationError.Coordinate}");
                                 }
                             }
                             catch
                             {
-                                Console.WriteLine($"     ??  Geometry is invalid (validation details unavailable)");
+                                Console.WriteLine($"       Geometry is invalid (validation details unavailable)");
                             }
                         }
                     }
                     else if (feature.Geometry is Point point)
                     {
-                        Console.WriteLine($"     ?? POINT DETECTED: ({point.X:F6}, {point.Y:F6}) - This should be a polygon!");
+                        Console.WriteLine($"      POINT DETECTED: ({point.X:F6}, {point.Y:F6}) - This should be a polygon!");
                     }
                     else
                     {
@@ -263,26 +263,26 @@ public static class WindPolygonVerifier
                 }
             }
             
-            Console.WriteLine($"\n? Verification complete! Analyzed {totalCount} features.");
+            Console.WriteLine($"\n Verification complete! Analyzed {totalCount} features.");
             
             // QGIS compatibility analysis and tips
-            Console.WriteLine("\n???  QGIS Compatibility Analysis:");
+            Console.WriteLine("\n  QGIS Compatibility Analysis:");
             
             if (geometryStats["Point"] > 0)
             {
-                Console.WriteLine("? PROBLEM: Layer contains Point geometries instead of Polygons");
+                Console.WriteLine(" PROBLEM: Layer contains Point geometries instead of Polygons");
                 Console.WriteLine("   ROOT CAUSE: The polygon creation or insertion process failed");
                 Console.WriteLine("   SOLUTION: Regenerate the GeoPackage with corrected polygon creation");
-                Console.WriteLine("\n?? Immediate workarounds:");
+                Console.WriteLine("\n Immediate workarounds:");
                 Console.WriteLine("   1. Use the GeoJSON file instead (rover_windpolygon.geojson)");
                 Console.WriteLine("   2. Recreate the layer with CreateLayerAsync using sample polygon geometry");
             }
             else
             {
-                Console.WriteLine("? Layer geometry types are correct for QGIS");
-                Console.WriteLine("\n?? QGIS Visualization Steps:");
-                Console.WriteLine("1. Layer ? Add Layer ? Add Vector Layer ? select rover_windpolygon.gpkg");
-                Console.WriteLine("2. Right-click layer ? Properties ? Symbology");
+                Console.WriteLine(" Layer geometry types are correct for QGIS");
+                Console.WriteLine("\n QGIS Visualization Steps:");
+                Console.WriteLine("1. Layer  Add Layer  Add Vector Layer  select rover_windpolygon.gpkg");
+                Console.WriteLine("2. Right-click layer  Properties  Symbology");
                 Console.WriteLine("3. Set Fill opacity to 50% to see overlapping areas");
                 Console.WriteLine("4. Use Graduated symbols with 'wind_speed_mps' for color coding");
                 Console.WriteLine("5. Add rover_data.gpkg as points layer for comparison");
@@ -290,16 +290,16 @@ public static class WindPolygonVerifier
             
             if (geometryStats["Invalid"] > 0)
             {
-                Console.WriteLine("\n??  If QGIS shows errors with invalid geometries:");
-                Console.WriteLine("   - Vector ? Geometry Tools ? Fix Geometries");
+                Console.WriteLine("\n  If QGIS shows errors with invalid geometries:");
+                Console.WriteLine("   - Vector  Geometry Tools  Fix Geometries");
                 Console.WriteLine("   - Or regenerate polygons with stricter validation");
             }
             
             // File recommendations
-            Console.WriteLine("\n?? File Format Recommendations:");
-            Console.WriteLine("   ?? Best for QGIS: GeoPackage (.gpkg) - if geometries are correct");
-            Console.WriteLine("   ?? Alternative: GeoJSON (.geojson) - always works but larger file size");
-            Console.WriteLine("   ?? Backup: Export as Shapefile from QGIS if needed");
+            Console.WriteLine("\n File Format Recommendations:");
+            Console.WriteLine("    Best for QGIS: GeoPackage (.gpkg) - if geometries are correct");
+            Console.WriteLine("    Alternative: GeoJSON (.geojson) - always works but larger file size");
+            Console.WriteLine("    Backup: Export as Shapefile from QGIS if needed");
         }
         catch (Exception ex)
         {

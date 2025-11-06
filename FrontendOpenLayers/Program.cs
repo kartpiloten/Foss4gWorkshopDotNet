@@ -37,7 +37,7 @@ string FindForestFile()
         Path.Combine(Directory.GetCurrentDirectory(), "..", "Solutionresources", "RiverHeadForest.gpkg"),
         Path.Combine(Directory.GetCurrentDirectory(), "Solutionresources", "RiverHeadForest.gpkg"),
     };
-    
+
     return possiblePaths.FirstOrDefault(File.Exists) ?? possiblePaths[0];
 }
 
@@ -75,14 +75,14 @@ app.MapGet("/api/forest", async () =>
 
         using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
         var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
+
         await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
         {
             if (feature.Geometry is Polygon polygon)
             {
                 var geoJsonWriter = new GeoJsonWriter();
                 var geoJsonGeometry = geoJsonWriter.Write(polygon);
-                
+
                 return Results.Json(new
                 {
                     type = "FeatureCollection",
@@ -98,7 +98,7 @@ app.MapGet("/api/forest", async () =>
                 });
             }
         }
-        
+
         return Results.NotFound("No forest data found");
     }
     catch (Exception ex)
@@ -118,26 +118,28 @@ app.MapGet("/api/forest-bounds", async () =>
 
         using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
         var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
+
         await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
         {
             if (feature.Geometry is Polygon polygon)
             {
                 var envelope = polygon.EnvelopeInternal;
                 var centroid = polygon.Centroid;
-                
+
                 return Results.Json(new
                 {
                     center = new { lat = centroid.Y, lng = centroid.X },
                     bounds = new
                     {
-                        minLat = envelope.MinY, maxLat = envelope.MaxY,
-                        minLng = envelope.MinX, maxLng = envelope.MaxX
+                        minLat = envelope.MinY,
+                        maxLat = envelope.MaxY,
+                        minLng = envelope.MinX,
+                        maxLng = envelope.MaxX
                     }
                 });
             }
         }
-        
+
         return Results.NotFound();
     }
     catch
@@ -153,7 +155,7 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
     {
         // Get total count for statistics
         var totalCount = await reader.GetMeasurementCountAsync();
-        
+
         // Get limited number of latest measurements for performance
         var measurements = await reader.GetAllMeasurementsAsync();
         var limitedMeasurements = measurements
@@ -161,7 +163,7 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
             .Take(limit ?? 100)
             .OrderBy(m => m.Sequence) // Re-order chronologically
             .ToList();
-        
+
         var features = limitedMeasurements.Select(m => new
         {
             type = "Feature",
@@ -178,12 +180,14 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
                 coordinates = new[] { m.Longitude, m.Latitude }
             }
         });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features,
-            metadata = new { 
-                totalCount, 
+            metadata = new
+            {
+                totalCount,
                 shownCount = limitedMeasurements.Count,
                 isLimited = totalCount > (limit ?? 100)
             }
@@ -191,8 +195,9 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
     }
     catch (Exception ex)
     {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features = new object[0],
             error = ex.Message
         });
@@ -206,28 +211,28 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = n
     try
     {
         var measurements = await reader.GetAllMeasurementsAsync();
-        
+
         if (!measurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
+
         // Filter by timestamp if 'after' parameter is provided
         var filteredMeasurements = measurements.OrderBy(m => m.Sequence);
-        
+
         if (!string.IsNullOrEmpty(after) && DateTime.TryParse(after, out var afterTime))
         {
             filteredMeasurements = filteredMeasurements.Where(m => m.RecordedAt > afterTime).OrderBy(m => m.Sequence);
         }
-        
+
         var limitedMeasurements = filteredMeasurements.ToList();
-        
+
         if (!limitedMeasurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
+
         // Create a LineString from the coordinates
         var coordinates = limitedMeasurements
             .Select(m => new[] { m.Longitude, m.Latitude })
             .ToArray();
-        
+
         var lineFeature = new
         {
             type = "Feature",
@@ -245,16 +250,18 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = n
                 coordinates
             }
         };
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features = new[] { lineFeature }
         });
     }
     catch (Exception ex)
     {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features = new object[0],
             error = ex.Message
         });
@@ -268,14 +275,15 @@ app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
     {
         var totalCount = await reader.GetMeasurementCountAsync();
         var latest = await reader.GetLatestMeasurementAsync();
-        
+
         return Results.Json(new
         {
             totalMeasurements = totalCount,
             latestSequence = latest?.Sequence ?? -1,
             latestTime = latest?.RecordedAt.ToString("HH:mm:ss"),
-            latestPosition = latest != null ? new { 
-                lat = latest.Latitude, 
+            latestPosition = latest != null ? new
+            {
+                lat = latest.Latitude,
                 lng = latest.Longitude,
                 windSpeed = latest.WindSpeedMps,
                 windDirection = latest.WindDirectionDeg
@@ -284,7 +292,8 @@ app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
     }
     catch (Exception ex)
     {
-        return Results.Json(new { 
+        return Results.Json(new
+        {
             error = ex.Message,
             totalMeasurements = 0
         });
@@ -297,16 +306,16 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
     try
     {
         var measurements = await reader.GetAllMeasurementsAsync();
-        
+
         if (!measurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
+
         var orderedMeasurements = measurements.OrderBy(m => m.Sequence).ToList();
         var totalCount = orderedMeasurements.Count;
         var requestedSample = sampleSize ?? 200;
-        
+
         List<RoverMeasurement> sampledMeasurements;
-        
+
         if (totalCount <= requestedSample)
         {
             // If we have fewer points than requested, return all
@@ -317,7 +326,7 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
             // Sample evenly across the dataset
             sampledMeasurements = new List<RoverMeasurement>();
             var step = (double)totalCount / requestedSample;
-            
+
             for (int i = 0; i < requestedSample; i++)
             {
                 var index = (int)Math.Round(i * step);
@@ -325,7 +334,7 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
                 sampledMeasurements.Add(orderedMeasurements[index]);
             }
         }
-        
+
         var features = sampledMeasurements.Select(m => new
         {
             type = "Feature",
@@ -342,11 +351,13 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
                 coordinates = new[] { m.Longitude, m.Latitude }
             }
         });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features,
-            metadata = new {
+            metadata = new
+            {
                 totalCount,
                 sampleSize = sampledMeasurements.Count,
                 samplingRatio = (double)sampledMeasurements.Count / totalCount
@@ -355,8 +366,9 @@ app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize 
     }
     catch (Exception ex)
     {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
+        return Results.Json(new
+        {
+            type = "FeatureCollection",
             features = new object[0],
             error = ex.Message
         });

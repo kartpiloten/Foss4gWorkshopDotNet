@@ -26,7 +26,7 @@ public class RoverPosition
     public double MinLongitude { get; init; }
     public double MaxLongitude { get; init; }
 
-    public RoverPosition(double initialLat, double initialLon, double initialBearing, double walkSpeed, 
+    public RoverPosition(double initialLat, double initialLon, double initialBearing, double walkSpeed,
                         double minLat, double maxLat, double minLon, double maxLon)
     {
         Latitude = initialLat;
@@ -45,7 +45,7 @@ public class RoverPosition
     public void UpdatePosition(TimeSpan interval)
     {
         StepMeters = WalkSpeedMps * interval.TotalSeconds;
-        
+
         double bearingRadians = BearingDegrees * Math.PI / 180.0;
         double dNorth = StepMeters * Math.Cos(bearingRadians);
         double dEast = StepMeters * Math.Sin(bearingRadians);
@@ -73,7 +73,7 @@ public class RoverPosition
 
     public bool IsInBounds()
     {
-        return Latitude >= MinLatitude && Latitude <= MaxLatitude && 
+        return Latitude >= MinLatitude && Latitude <= MaxLatitude &&
                Longitude >= MinLongitude && Longitude <= MaxLongitude;
     }
 

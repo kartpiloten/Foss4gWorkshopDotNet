@@ -15,7 +15,7 @@ public class RoverAttributes
     public int WindDirectionDegrees { get; set; }
     public double WindSpeedMps { get; set; }
     public double MaxWindSpeedMps { get; init; }
-    
+
     // Smoothing parameters for more realistic transitions
     private double _targetWindDirection;
     private double _targetWindSpeed;
@@ -23,7 +23,7 @@ public class RoverAttributes
     private double _speedChangeRate;
     private readonly Random _internalRandom;
     private int _updatesSinceLastMajorChange;
-    
+
     // Weather pattern simulation
     private double _baseWindDirection;
     private double _baseWindSpeed;
@@ -35,14 +35,14 @@ public class RoverAttributes
         WindDirectionDegrees = initialWindDirection;
         WindSpeedMps = initialWindSpeed;
         MaxWindSpeedMps = maxWindSpeed;
-        
+
         _targetWindDirection = initialWindDirection;
         _targetWindSpeed = initialWindSpeed;
         _directionChangeRate = 0.0;
         _speedChangeRate = 0.0;
         _internalRandom = new Random();
         _updatesSinceLastMajorChange = 0;
-        
+
         _baseWindDirection = initialWindDirection;
         _baseWindSpeed = initialWindSpeed;
         _weatherPatternDuration = _internalRandom.Next(180, 600);
@@ -56,59 +56,59 @@ public class RoverAttributes
     {
         _updatesSinceLastMajorChange++;
         _weatherPatternElapsed++;
-        
+
         if (_weatherPatternElapsed >= _weatherPatternDuration)
         {
             StartNewWeatherPattern(random);
         }
-        
+
         UpdateTargetsAndTransition(random);
         ApplySmoothTransition();
-        
+
         WindDirectionDegrees = (int)NormalizeDegrees(WindDirectionDegrees);
         WindSpeedMps = Math.Clamp(WindSpeedMps, 0.0, MaxWindSpeedMps);
     }
-    
+
     private void StartNewWeatherPattern(Random random)
     {
         var directionChange = NextGaussian(random, 0, 30);
         _baseWindDirection = NormalizeDegrees(_baseWindDirection + directionChange);
-        
+
         var speedMultiplier = 0.8 + random.NextDouble() * 0.4;
         _baseWindSpeed = Math.Clamp(_baseWindSpeed * speedMultiplier, 0.5, MaxWindSpeedMps);
-        
+
         _weatherPatternDuration = random.Next(180, 600);
         _weatherPatternElapsed = 0;
-        
+
         Console.WriteLine($"New weather pattern: {_baseWindDirection:F0}° @ {_baseWindSpeed:F1} m/s");
     }
-    
+
     private void UpdateTargetsAndTransition(Random random)
     {
         if (_updatesSinceLastMajorChange > 15 && random.NextDouble() < 0.25)
         {
             var directionVariation = NextGaussian(random, 0, 15);
             _targetWindDirection = NormalizeDegrees(_baseWindDirection + directionVariation);
-            
+
             var speedVariation = NextGaussian(random, 0, 0.8);
             _targetWindSpeed = Math.Clamp(_baseWindSpeed + speedVariation, 0.0, MaxWindSpeedMps);
-            
+
             var directionDiff = CalculateAngleDifference(WindDirectionDegrees, _targetWindDirection);
             _directionChangeRate = directionDiff / 30.0;
-            
+
             var speedDiff = _targetWindSpeed - WindSpeedMps;
             _speedChangeRate = speedDiff / 25.0;
-            
+
             _updatesSinceLastMajorChange = 0;
         }
-        
+
         var microDirectionChange = NextGaussian(random, 0, 1.5);
         var microSpeedChange = NextGaussian(random, 0, 0.08);
-        
+
         _targetWindDirection = NormalizeDegrees(_targetWindDirection + microDirectionChange);
         _targetWindSpeed = Math.Clamp(_targetWindSpeed + microSpeedChange, 0.0, MaxWindSpeedMps);
     }
-    
+
     private void ApplySmoothTransition()
     {
         WindDirectionDegrees += (int)Math.Round(_directionChangeRate);
@@ -116,7 +116,7 @@ public class RoverAttributes
         _directionChangeRate *= 0.995;
         _speedChangeRate *= 0.995;
     }
-    
+
     private static double CalculateAngleDifference(double current, double target)
     {
         var diff = target - current;

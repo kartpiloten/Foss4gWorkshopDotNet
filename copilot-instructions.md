@@ -8,6 +8,7 @@ It provides guidelines on how to write prompts, examples of good and bad prompts
 - In the frontend minimize javascript code. Use blazor components as much as possible.
 - Do not include to much error handling, logging, or configuration code that distracts from the main point.
 - Do not include any emojis in the code or comments.
+- Do not use unnecessary question marks in console output messages (use simple text instead of decorative ? characters).
 - Make small comments in the code where .NET-specific concepts are used that may not be familiar to all users. Ex Dependency Injection, Async/Await, LINQ, etc.
 - Make small comments in the code where the Nuget packages are used that may not be familiar to all users. E.g Npgsql, NetTopologySuite, etc.
 - Make small comments in the code where FOSS4G-specific concepts are used that may not be familiar to all users. E.g PostGIS, GeoJSON, OpenLayers, Leaflet, etc.

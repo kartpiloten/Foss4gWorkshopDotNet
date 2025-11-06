@@ -17,7 +17,7 @@ public interface IRoverDataRepository : IDisposable // IDisposable for releasing
     /// Available after InitializeAsync completes.
     /// </summary>
     Guid SessionId { get; }
-    
+
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task ResetDatabaseAsync(CancellationToken cancellationToken = default);
     Task InsertMeasurementAsync(RoverMeasurement measurement, CancellationToken cancellationToken = default);

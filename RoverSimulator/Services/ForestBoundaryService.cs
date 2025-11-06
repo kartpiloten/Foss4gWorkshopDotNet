@@ -103,10 +103,11 @@ public class ForestBoundaryService
         }
         catch
         {
-            return new Point(_settings.FallbackBounds.MinLongitude + 
+            return new Point(_settings.FallbackBounds.MinLongitude +
                            (_settings.FallbackBounds.MaxLongitude - _settings.FallbackBounds.MinLongitude) / 2,
-                           _settings.FallbackBounds.MinLatitude + 
-                           (_settings.FallbackBounds.MaxLatitude - _settings.FallbackBounds.MinLatitude) / 2) { SRID = 4326 };
+                           _settings.FallbackBounds.MinLatitude +
+                           (_settings.FallbackBounds.MaxLatitude - _settings.FallbackBounds.MinLatitude) / 2)
+            { SRID = 4326 };
         }
     }
 

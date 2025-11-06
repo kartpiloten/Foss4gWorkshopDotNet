@@ -52,7 +52,7 @@ public class GeoPackageRoverDataReader : RoverDataReaderBase
         {
             throw new FileNotFoundException($"GeoPackage file not found: {_dbPath}");
         }
-        
+
         // Just verify the file exists; do not keep it open (keeps the sample minimal)
         return Task.CompletedTask;
     }

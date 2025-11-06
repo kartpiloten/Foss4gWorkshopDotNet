@@ -52,7 +52,7 @@ public class RoverDataMonitor : IDisposable
     /// Blazor note: invoke StateHasChanged via InvokeAsync on the component side.
     /// </summary>
     public event EventHandler<RoverDataUpdateEventArgs>? DataUpdated;
-    
+
     /// <summary>
     /// Event fired for periodic status updates.
     /// </summary>
@@ -64,7 +64,7 @@ public class RoverDataMonitor : IDisposable
         _measurements = new ConcurrentDictionary<int, RoverMeasurement>(); // thread-safe map by Sequence
         _pollIntervalMs = pollIntervalMs;
         _statusIntervalMs = statusIntervalMs;
-        
+
         // Create timers but don't start them yet; period is configured, dueTime will be set in StartAsync.
         _pollTimer = new Timer(PollForNewData, null, Timeout.Infinite, _pollIntervalMs);
         _statusTimer = new Timer(FireStatusUpdate, null, Timeout.Infinite, _statusIntervalMs);
@@ -96,10 +96,10 @@ public class RoverDataMonitor : IDisposable
     public async Task StartAsync()
     {
         await _dataReader.InitializeAsync();
-        
+
         // Load initial data
         await LoadInitialData();
-        
+
         // Start polling for new data and status with configured intervals
         _pollTimer.Change(_pollIntervalMs, _pollIntervalMs);
         _statusTimer.Change(_statusIntervalMs, _statusIntervalMs);
@@ -119,11 +119,11 @@ public class RoverDataMonitor : IDisposable
         try
         {
             var allMeasurements = await _dataReader.GetAllMeasurementsAsync();
-            
+
             foreach (var measurement in allMeasurements)
             {
                 _measurements.TryAdd(measurement.Sequence, measurement);
-                
+
                 if (_latestMeasurement == null || measurement.Sequence > _latestMeasurement.Sequence)
                 {
                     _latestMeasurement = measurement;
@@ -143,17 +143,17 @@ public class RoverDataMonitor : IDisposable
         try
         {
             var newMeasurements = await _dataReader.GetNewMeasurementsAsync(_lastKnownSequence);
-            
+
             if (newMeasurements.Any())
             {
                 var addedCount = 0;
-                
+
                 foreach (var measurement in newMeasurements)
                 {
                     if (_measurements.TryAdd(measurement.Sequence, measurement))
                     {
                         addedCount++;
-                        
+
                         if (_latestMeasurement == null || measurement.Sequence > _latestMeasurement.Sequence)
                         {
                             _latestMeasurement = measurement;
@@ -161,7 +161,7 @@ public class RoverDataMonitor : IDisposable
                         }
                     }
                 }
-                
+
                 if (addedCount > 0)
                 {
                     // Fire event for new data (consumer is responsible for UI-thread marshalling)

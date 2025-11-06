@@ -10,9 +10,9 @@ namespace RoverSimulator;
 /// <summary>
 /// Shared progress state container for the simulator.
 /// </summary>
-public static class ProgressState 
-{ 
-    public static volatile bool Enabled = true; 
+public static class ProgressState
+{
+    public static volatile bool Enabled = true;
 }
 
 /// <summary>
@@ -27,7 +27,7 @@ public class ProgressMonitor : IDisposable
     public ProgressMonitor(CancellationTokenSource cancellationTokenSource)
     {
         _cancellationTokenSource = cancellationTokenSource;
-        
+
         // Start keyboard monitoring task
         _keyboardMonitorTask = Task.Run(MonitorKeyboardInputAsync);
     }

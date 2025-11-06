@@ -61,7 +61,7 @@ public static class RoverDataReaderFactory
     /// Uses async/await and CancellationToken to avoid blocking.
     /// </summary>
     public static async Task<(bool isConnected, string errorMessage)> TestPostgresConnectionAsync(
-        string connectionString, 
+        string connectionString,
         int timeoutSeconds = ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
         int maxRetryAttempts = ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
         int retryDelayMs = ReaderDefaults.DEFAULT_RETRY_DELAY_MS,
@@ -95,7 +95,7 @@ public static class RoverDataReaderFactory
             catch (Exception ex)
             {
                 // Keep check simple: message-based short-circuit for common fatal issues
-                if (ex.Message.Contains("authentication failed") || 
+                if (ex.Message.Contains("authentication failed") ||
                     ex.Message.Contains("database") && ex.Message.Contains("does not exist") ||
                     ex.Message.Contains("permission denied") ||
                     ex.Message.Contains("table not found") ||
@@ -103,19 +103,19 @@ public static class RoverDataReaderFactory
                 {
                     return (false, $"Connection failed: {ex.Message}");
                 }
-                
+
                 if (attempt == maxRetryAttempts)
                 {
                     return (false, $"Connection failed after {maxRetryAttempts} attempts: {ex.Message}");
                 }
             }
-            
+
             if (attempt < maxRetryAttempts)
             {
                 await Task.Delay(retryDelayMs, cancellationToken); // brief pause between attempts
             }
         }
-        
+
         return (false, "Connection failed: Unknown error");
     }
 
@@ -124,7 +124,7 @@ public static class RoverDataReaderFactory
     /// Throws with a concise message if validation fails (kept minimal).
     /// </summary>
     public static async Task<IRoverDataReader> CreateReaderWithValidationAsync(
-        DatabaseConfiguration config, 
+        DatabaseConfiguration config,
         CancellationToken cancellationToken = default)
     {
         if (config.DatabaseType.ToLower() == "postgres")
@@ -140,7 +140,7 @@ public static class RoverDataReaderFactory
                 config.MaxRetryAttempts,
                 config.RetryDelayMs,
                 cancellationToken);
-            
+
             if (isConnected)
             {
                 return new PostgresRoverDataReader(config.PostgresConnectionString);
@@ -173,7 +173,7 @@ public static class RoverDataReaderFactory
     {
         return config.DatabaseType.ToLower() switch
         {
-            "postgres" when !string.IsNullOrEmpty(config.PostgresConnectionString) 
+            "postgres" when !string.IsNullOrEmpty(config.PostgresConnectionString)
                 => new PostgresRoverDataReader(config.PostgresConnectionString),
 
             "geopackage" when !string.IsNullOrEmpty(config.GeoPackageFolderPath)

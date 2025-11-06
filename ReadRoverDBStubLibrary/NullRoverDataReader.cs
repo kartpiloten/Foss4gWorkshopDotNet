@@ -17,7 +17,7 @@ public class NullRoverDataReader : IRoverDataReader
 {
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask; // no-op init
     public Task<long> GetMeasurementCountAsync(CancellationToken cancellationToken = default) => Task.FromResult(0L); // empty data
-    public Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default) 
+    public Task<List<RoverMeasurement>> GetAllMeasurementsAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(new List<RoverMeasurement>()); // empty list
     public Task<List<RoverMeasurement>> GetNewMeasurementsAsync(int lastSequence, CancellationToken cancellationToken = default)
         => Task.FromResult(new List<RoverMeasurement>()); // empty list
