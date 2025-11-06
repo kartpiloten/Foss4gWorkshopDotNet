@@ -8,17 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.0" />
+    <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.2" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.10" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj" />
+    <ProjectReference Include="..\RoverData.Repository\RoverData.Repository.csproj" />
   </ItemGroup>
 
   <ItemGroup>

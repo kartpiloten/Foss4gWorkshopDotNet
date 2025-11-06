@@ -9,8 +9,9 @@
 
 using MapPiloteGeopackageHelper; // FOSS4G: OGC GeoPackage helper
 using Microsoft.Extensions.Configuration; // .NET configuration (appsettings.json)
-using ReadRoverDBStubLibrary; // Reader abstraction + factory
-using ScentPolygonLibrary; // Scent polygon service
+using ScentPolygonLibrary;
+using RoverData.Repository;
+using Microsoft.Extensions.Options;
 using System.Globalization; // Invariant formatting
 using ScentPolygonTester; // Access TesterConfiguration
 using Npgsql; // PostgreSQL for session queries
@@ -54,45 +55,45 @@ double? lastUnifiedAreaM2 = null; // Track last unified polygon area to detect s
 // Resolve forest file path once (used in update block)
 string forestPath = FindForestFile();
 
-// Create data reader with validation (GeoPackage or Postgres) - session-specific
-IRoverDataReader dataReader;
+// Create data repository with validation (GeoPackage or Postgres) - session-specific
+RoverData.Repository.IRoverDataRepository dataRepository;
 try
 {
-    // For PostgreSQL, create session-aware reader
+    // For PostgreSQL, create session-aware repository
     if (dbConfig.DatabaseType.ToLower() == "postgres")
     {
- if (!sessionId.HasValue)
-   {
-         Console.WriteLine("ERROR: Could not determine session_id for PostgreSQL");
-      return;
-        }
+        // Create NpgsqlDataSource with NetTopologySuite support
+        var dataSource = new NpgsqlDataSourceBuilder(dbConfig.PostgresConnectionString!)
+            .UseNetTopologySuite()
+            .Build();
         
-        // Create session-aware PostgresRoverDataReader
-        dataReader = new PostgresRoverDataReader(dbConfig.PostgresConnectionString!, sessionId.Value);
-        await dataReader.InitializeAsync(cts.Token);
+        // Register or get session from database
+        var sessionRepository = new SessionRepository(dataSource);
+        var resolvedSessionId = await sessionRepository.RegisterOrGetSessionAsync(sessionName, cts.Token);
+        
+        var sessionContext = new ConsoleSessionContext(resolvedSessionId, sessionName);
+        dataRepository = new PostgresRoverDataRepository(dataSource, sessionContext);
+        await dataRepository.InitializeAsync(cts.Token);
   
-   Console.WriteLine($"? PostgreSQL reader initialized for session: {sessionName}");
+        Console.WriteLine($"? PostgreSQL repository initialized for session: {sessionName}");
     }
     // For GeoPackage, point to the session-specific file
     else if (dbConfig.DatabaseType.ToLower() == "geopackage")
     {
-   // Point to the session-specific GeoPackage file
-        var sessionFilePath = Path.Combine(dbConfig.GeoPackageFolderPath ?? "", $"session_{sessionName}.gpkg");
-  if (!File.Exists(sessionFilePath))
+        // Point to the session-specific GeoPackage folder
+        var opts = Options.Create(new GeoPackageRepositoryOptions
         {
-            Console.WriteLine($"ERROR: Session file not found: {sessionFilePath}");
-            Console.WriteLine("Please start a RoverSimulator with this session name first.");
-            return;
-}
-        
-        dataReader = new GeoPackageRoverDataReader(sessionFilePath);
-        await dataReader.InitializeAsync(cts.Token);
+            FolderPath = dbConfig.GeoPackageFolderPath ?? ""
+        });
+        var sessionContext = new ConsoleSessionContext(Guid.NewGuid(), sessionName);
+        dataRepository = new GeoPackageRoverDataRepository(opts, sessionContext);
+        await dataRepository.InitializeAsync(cts.Token);
   
-        Console.WriteLine($"? GeoPackage reader initialized for session: {sessionName}");
+        Console.WriteLine($"? GeoPackage repository initialized for session: {sessionName}");
     }
     else
     {
-   Console.WriteLine($"ERROR: Unsupported database type: {dbConfig.DatabaseType}");
+        Console.WriteLine($"ERROR: Unsupported database type: {dbConfig.DatabaseType}");
         return;
     }
 }
@@ -110,7 +111,7 @@ var scentConfig = new ScentPolygonConfiguration
     MinimumDistanceMultiplier = 0.4
 };
 
-using var scentService = new ScentPolygonService(dataReader, scentConfig, pollIntervalMs: 1000);
+using var scentService = new ScentPolygonService(dataRepository, scentConfig, pollIntervalMs: 1000);
 using var geoPackageUpdater = new GeoPackageUpdater(TesterConfiguration.OutputGeoPackagePath);
 await geoPackageUpdater.InitializeAsync();
 
@@ -165,9 +166,9 @@ catch (Exception updateEx)
     var (intersectM2, forestM2) = await scentService.GetForestIntersectionAreasAsync(forestPath);
    int AreaCoveredPercent = forestM2 > 0 ? (int)Math.Round(((double)intersectM2 / forestM2) * 100) : 0;
     Console.WriteLine("\n?? Coverage Statistics:");
-         Console.WriteLine($"  Unified scent area:    {currentArea:n0} m²");
-      Console.WriteLine($"  RiverHead forest:      {forestM2:n0} m²");
-     Console.WriteLine($"  Intersection:   {intersectM2:n0} m²");
+         Console.WriteLine($"  Unified scent area:    {currentArea:n0} mï¿½");
+      Console.WriteLine($"  RiverHead forest:      {forestM2:n0} mï¿½");
+     Console.WriteLine($"  Intersection:   {intersectM2:n0} mï¿½");
     Console.WriteLine($"Forest covered:        {AreaCoveredPercent}%");
     Console.WriteLine($"  Active rovers: {scentService.ActiveRoverCount}");
   Console.WriteLine($"  Rover names: {string.Join(", ", unified.RoverNames.Distinct())}");
@@ -557,7 +558,7 @@ public sealed class GeoPackageUpdater : IDisposable
      null, 
         CancellationToken.None);
    }
-    catch (Exception ex)
+    catch (Exception)
         {
             Console.WriteLine($"? Insert failed for {roverPolygon.RoverName}:");
         Console.WriteLine($"   Polygon valid: {roverPolygon.UnifiedPolygon?.IsValid}");

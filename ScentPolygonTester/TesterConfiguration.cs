@@ -5,9 +5,15 @@
 */
 
 using Microsoft.Extensions.Configuration; // .NET generic configuration
-using ReadRoverDBStubLibrary; // DatabaseConfiguration + ReaderDefaults
 
 namespace ScentPolygonTester;
+
+public class DatabaseConfiguration
+{
+    public string DatabaseType { get; set; } = "geopackage";
+    public string? PostgresConnectionString { get; set; }
+    public string? GeoPackageFolderPath { get; set; }
+}
 
 public static class TesterConfiguration
 {
@@ -47,10 +53,7 @@ public static class TesterConfiguration
         {
             DatabaseType = dbType,
             PostgresConnectionString = section.GetValue<string>("PostgresConnectionString"),
-            GeoPackageFolderPath = GeoPackageFolderPath,
-            ConnectionTimeoutSeconds = section.GetValue<int?>("ConnectionTimeoutSeconds") ?? ReaderDefaults.DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-            MaxRetryAttempts = section.GetValue<int?>("MaxRetryAttempts") ?? ReaderDefaults.DEFAULT_MAX_RETRY_ATTEMPTS,
-            RetryDelayMs = section.GetValue<int?>("RetryDelayMs") ?? ReaderDefaults.DEFAULT_RETRY_DELAY_MS
+            GeoPackageFolderPath = GeoPackageFolderPath
         };
     }
 }

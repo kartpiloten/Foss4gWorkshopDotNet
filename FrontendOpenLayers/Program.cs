@@ -1,9 +1,10 @@
 using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
-using ReadRoverDBStubLibrary;
+using RoverData.Repository;
 using ScentPolygonLibrary;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 // ====== Simple Rover Visualization Application ======
 
@@ -14,20 +15,53 @@ var builder = WebApplication.CreateBuilder(args);
 // Basic services
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
-builder.Services.Configure<DatabaseConfiguration>(
-    builder.Configuration.GetSection("DatabaseConfiguration"));
 
-// Simple rover data reader configuration
-builder.Services.AddSingleton<IRoverDataReader>(provider =>
+// Configure repository based on appsettings.json
+var dbType = builder.Configuration["DatabaseConfiguration:DatabaseType"] ?? "geopackage";
+var sessionName = builder.Configuration["DatabaseConfiguration:SessionName"] ?? "default";
+
+if (dbType.ToLower() == "postgres")
 {
-    var options = provider.GetRequiredService<IOptions<DatabaseConfiguration>>();
-    var databaseConfig = options.Value ?? throw new InvalidOperationException("Database configuration is unavailable.");
+    // Register NpgsqlDataSource as a singleton (connection pool)
+    var connStr = builder.Configuration["DatabaseConfiguration:PostgresConnectionString"] ?? "";
+    builder.Services.AddNpgsqlDataSource(connStr, dataSourceBuilder =>
+    {
+        dataSourceBuilder.UseNetTopologySuite();
+    });
 
-    var reader = RoverDataReaderFactory.CreateReader(databaseConfig);
-    reader.InitializeAsync().GetAwaiter().GetResult();
-    Console.WriteLine($"Rover data reader initialized for database type '{databaseConfig.DatabaseType}'.");
-    return reader;
-});
+    // Register SessionRepository for session management
+    builder.Services.AddSingleton<ISessionRepository, SessionRepository>();
+
+    // Initialize database schema once at startup
+    builder.Services.AddSingleton<PostgresDatabaseInitializer>();
+
+    // Register session context as scoped (for future per-request session selection)
+    builder.Services.AddScoped<ISessionContext>(provider =>
+    {
+        var sessionRepository = provider.GetRequiredService<ISessionRepository>();
+        var sessionId = sessionRepository.RegisterOrGetSessionAsync(sessionName).GetAwaiter().GetResult();
+        return new WebSessionContext(sessionId, sessionName);
+    });
+
+    // Register scoped repository
+    builder.Services.AddScoped<IRoverDataRepository, PostgresRoverDataRepository>();
+}
+else
+{
+    builder.Services.Configure<GeoPackageRepositoryOptions>(options =>
+    {
+        options.FolderPath = builder.Configuration["DatabaseConfiguration:GeoPackageFolderPath"] ?? "/tmp/Rover1";
+    });
+
+    // For GeoPackage, session context is simpler (filename-based)
+    builder.Services.AddScoped<ISessionContext>(provider =>
+    {
+        // Generate a session ID for GeoPackage (file-based, so just need unique ID)
+        return new WebSessionContext(Guid.NewGuid(), sessionName);
+    });
+
+    builder.Services.AddScoped<IRoverDataRepository, GeoPackageRoverDataRepository>();
+}
 
 // Find forest file path
 string FindForestFile()
@@ -43,15 +77,40 @@ string FindForestFile()
 
 var forestPath = FindForestFile();
 
-// Simple scent polygon service with forest path for real-time updates
+// Register ScentPolygonService as singleton
 builder.Services.AddSingleton<ScentPolygonService>(provider =>
 {
-    var reader = provider.GetRequiredService<IRoverDataReader>();
-    return new ScentPolygonService(reader, forestGeoPackagePath: forestPath);
+    IRoverDataRepository repo;
+    if (dbType.ToLower() == "postgres")
+    {
+        var dataSource = provider.GetRequiredService<NpgsqlDataSource>();
+        var sessionRepository = provider.GetRequiredService<ISessionRepository>();
+        var sessionId = sessionRepository.RegisterOrGetSessionAsync(sessionName).GetAwaiter().GetResult();
+        var sessionContext = new ConsoleSessionContext(sessionId, sessionName);
+        repo = new PostgresRoverDataRepository(dataSource, sessionContext);
+        repo.InitializeAsync().GetAwaiter().GetResult();
+    }
+    else
+    {
+        var opts = provider.GetRequiredService<IOptions<GeoPackageRepositoryOptions>>();
+        var sessionContext = new ConsoleSessionContext(Guid.NewGuid(), sessionName);
+        repo = new GeoPackageRoverDataRepository(opts, sessionContext);
+        repo.InitializeAsync().GetAwaiter().GetResult();
+    }
+    return new ScentPolygonService(repo, forestGeoPackagePath: forestPath);
 });
 builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
 
 var app = builder.Build();
+
+// Initialize database schema if using Postgres
+if (dbType.ToLower() == "postgres")
+{
+    using var scope = app.Services.CreateScope();
+    var initializer = scope.ServiceProvider.GetRequiredService<PostgresDatabaseInitializer>();
+    await initializer.InitializeSchemaAsync();
+    Console.WriteLine("PostgreSQL schema initialized.");
+}
 
 // Simple middleware setup
 app.UseStaticFiles();
@@ -147,15 +206,15 @@ app.MapGet("/api/forest-bounds", async () =>
 });
 
 // OPTIMIZED: Latest rover measurement points (limited for performance)
-app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) =>
+app.MapGet("/api/rover-data", async (IRoverDataRepository repository, int? limit = 100) =>
 {
     try
     {
         // Get total count for statistics
-        var totalCount = await reader.GetMeasurementCountAsync();
+        var totalCount = await repository.GetCountAsync();
         
         // Get limited number of latest measurements for performance
-        var measurements = await reader.GetAllMeasurementsAsync();
+        var measurements = await repository.GetAllAsync();
         var limitedMeasurements = measurements
             .OrderByDescending(m => m.Sequence)
             .Take(limit ?? 100)
@@ -201,11 +260,11 @@ app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) 
 
 // NEW: Rover trail as a single LineString for better performance with many points
 // If 'after' timestamp is provided, only returns points after that time
-app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = null) =>
+app.MapGet("/api/rover-trail", async (IRoverDataRepository repository, string? after = null) =>
 {
     try
     {
-        var measurements = await reader.GetAllMeasurementsAsync();
+        var measurements = await repository.GetAllAsync();
         
         if (!measurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });
@@ -262,12 +321,12 @@ app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = n
 });
 
 // OPTIMIZED: Rover statistics for info display
-app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
+app.MapGet("/api/rover-stats", async (IRoverDataRepository repository) =>
 {
     try
     {
-        var totalCount = await reader.GetMeasurementCountAsync();
-        var latest = await reader.GetLatestMeasurementAsync();
+        var totalCount = await repository.GetCountAsync();
+        var latest = await repository.GetLatestAsync();
         
         return Results.Json(new
         {
@@ -292,11 +351,11 @@ app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
 });
 
 // NEW: Sampling API - get evenly distributed points for large datasets
-app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize = 200) =>
+app.MapGet("/api/rover-sample", async (IRoverDataRepository repository, int? sampleSize = 200) =>
 {
     try
     {
-        var measurements = await reader.GetAllMeasurementsAsync();
+        var measurements = await repository.GetAllAsync();
         
         if (!measurements.Any())
             return Results.Json(new { type = "FeatureCollection", features = new object[0] });

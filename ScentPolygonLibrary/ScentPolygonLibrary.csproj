@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj" />
+    <ProjectReference Include="..\RoverData.Repository\RoverData.Repository.csproj" />
   </ItemGroup>
 
 </Project>

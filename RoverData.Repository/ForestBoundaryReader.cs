@@ -5,10 +5,10 @@
  - Keep the implementation minimal and silent (library-level component).
 */
 
-using MapPiloteGeopackageHelper;
-using NetTopologySuite.Geometries;
+using MapPiloteGeopackageHelper; // NuGet: GeoPackage helper (OGC standard, async APIs)
+using NetTopologySuite.Geometries; // NuGet: NTS for FOSS4G geometry types (e.g., Polygon, Point)
 
-namespace ReadRoverDBStubLibrary;
+namespace RoverData.Repository;
 
 /// <summary>
 /// Reads and caches a forest boundary polygon from a GeoPackage file.

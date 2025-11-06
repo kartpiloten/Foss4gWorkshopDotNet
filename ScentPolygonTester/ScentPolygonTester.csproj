@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ScentPolygonLibrary\ScentPolygonLibrary.csproj" />
-    <ProjectReference Include="..\ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj" />
+    <ProjectReference Include="..\RoverData.Repository\RoverData.Repository.csproj" />
   </ItemGroup>
 
   <ItemGroup>
