@@ -111,107 +111,73 @@ var scentConfig = new ScentPolygonConfiguration
     MinimumDistanceMultiplier = 0.4
 };
 
-using var scentService = new ScentPolygonService(dataRepository, scentConfig, pollIntervalMs: 1000);
+// Create memory cache and polygon generator
+var memoryCache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+    new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+var generator = new ScentPolygonGenerator(dataRepository, memoryCache, scentConfig, forestPath);
 using var geoPackageUpdater = new GeoPackageUpdater(TesterConfiguration.OutputGeoPackagePath);
 await geoPackageUpdater.InitializeAsync();
 
-// Subscribe to polygon updates
-scentService.PolygonsUpdated += async (sender, args) =>
-{
-    try
-    {
-        Console.WriteLine($"[Update] +{args.NewPolygons.Count} polygons | Total: {args.TotalPolygonCount} | Affected rovers: {args.AffectedRoverIds.Count}");
-
-  // Update all rover layers (per-rover + combined) with retry logic
-        int maxRetries = 3;
-        int retryCount = 0;
-        bool updateSuccess = false;
-        
-        while (retryCount < maxRetries && !updateSuccess)
-     {
-            try
-{
-          await geoPackageUpdater.UpdateAllRoverPolygonsAsync(scentService);
-    updateSuccess = true;
-            }
-catch (Exception updateEx)
-     {
-        retryCount++;
-                Console.WriteLine($"?? GeoPackage update failed (attempt {retryCount}/{maxRetries}): {updateEx.Message}");
-          
-        if (retryCount < maxRetries)
-         {
-      Console.WriteLine($"   Retrying in 1 second...");
-            await Task.Delay(1000);
-           }
-                else
-                {
-                    Console.WriteLine($"   ? All retry attempts exhausted. Update failed.");
-    }
-     }
-        }
-
-        // Check if unified polygon size changed and, if so, compute and print forest + unified areas
-     try
-        {
-  var unified = scentService.GetUnifiedScentPolygonCached();
-            if (unified != null && unified.IsValid)
-    {
-      var currentArea = unified.TotalAreaM2;
-      // Consider any non-trivial change (tolerance 0.5 m^2 to avoid noise)
-      if (lastUnifiedAreaM2 is null || Math.Abs(currentArea - lastUnifiedAreaM2.Value) > 0.5)
-        {
-      lastUnifiedAreaM2 = currentArea;
-
-    var (intersectM2, forestM2) = await scentService.GetForestIntersectionAreasAsync(forestPath);
-   int AreaCoveredPercent = forestM2 > 0 ? (int)Math.Round(((double)intersectM2 / forestM2) * 100) : 0;
-    Console.WriteLine("\n?? Coverage Statistics:");
-         Console.WriteLine($"  Unified scent area:    {currentArea:n0} m�");
-      Console.WriteLine($"  RiverHead forest:      {forestM2:n0} m�");
-     Console.WriteLine($"  Intersection:   {intersectM2:n0} m�");
-    Console.WriteLine($"Forest covered:        {AreaCoveredPercent}%");
-    Console.WriteLine($"  Active rovers: {scentService.ActiveRoverCount}");
-  Console.WriteLine($"  Rover names: {string.Join(", ", unified.RoverNames.Distinct())}");
-Console.WriteLine();
-   }
-     }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Warning] Forest coverage calculation failed: {ex.Message}");
- }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"? Error in PolygonsUpdated event handler: {ex.Message}");
-        Console.WriteLine($"   Stack trace: {ex.StackTrace}");
-    }
-};
-
-// Optional: status tick
-scentService.StatusUpdate += (sender, args) =>
-{
-    Console.WriteLine($"[Status] Polygons: {args.TotalPolygonCount} | Latest seq: {args.LatestPolygon?.Sequence ?? -1} | Active rovers: {args.ActiveRoverCount}");
-};
-
-Console.WriteLine("? Service started. Monitoring session in real-time...");
+Console.WriteLine("✓ Generator initialized. Monitoring session with polling loop...");
 Console.WriteLine("  Press Ctrl+C to stop.");
 Console.WriteLine();
-Console.WriteLine("? GeoPackage output structure:");
+Console.WriteLine("✓ GeoPackage output structure:");
 Console.WriteLine("  - Per-rover layers: <rover_name> (one layer per rover)");
 Console.WriteLine("  - Combined layer: combined_all_rovers (all rovers unified)");
 Console.WriteLine($"  - Output file: {TesterConfiguration.OutputGeoPackagePath}");
 Console.WriteLine();
-await scentService.StartAsync(cts.Token);
 
+// Simple polling loop (checks every second)
+int updateCount = 0;
 try
 {
-    await Task.Delay(Timeout.Infinite, cts.Token);
+    while (!cts.Token.IsCancellationRequested)
+    {
+        try
+        {
+            // Get unified polygon (cached for 1 second)
+            var unified = await generator.GetUnifiedPolygonAsync(cts.Token);
+            
+            if (unified != null && unified.IsValid)
+            {
+                var currentArea = unified.TotalAreaM2;
+                
+                // Update GeoPackage if area changed significantly
+                if (lastUnifiedAreaM2 is null || Math.Abs(currentArea - lastUnifiedAreaM2.Value) > 0.5)
+                {
+                    lastUnifiedAreaM2 = currentArea;
+                    updateCount++;
+                    
+                    // Update GeoPackage layers
+                    await geoPackageUpdater.UpdateAllRoverPolygonsAsync(generator);
+                    
+                    // Calculate forest coverage
+                    var (intersectM2, forestM2) = await generator.GetForestIntersectionAreasAsync(cts.Token);
+                    int areaCoveredPercent = forestM2 > 0 ? (int)Math.Round(((double)intersectM2 / forestM2) * 100) : 0;
+                    
+                    Console.WriteLine($"\n[Update #{updateCount}] Coverage Statistics:");
+                    Console.WriteLine($"  Unified scent area:    {currentArea:n0} m²");
+                    Console.WriteLine($"  RiverHead forest:      {forestM2:n0} m²");
+                    Console.WriteLine($"  Intersection:          {intersectM2:n0} m²");
+                    Console.WriteLine($"  Forest covered:        {areaCoveredPercent}%");
+                    Console.WriteLine($"  Total polygons:        {unified.PolygonCount}");
+                    Console.WriteLine($"  Avg wind speed:        {unified.AverageWindSpeedMps:F1} m/s");
+                    Console.WriteLine();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠ Error in polling loop: {ex.Message}");
+        }
+        
+        // Poll every second
+        await Task.Delay(1000, cts.Token);
+    }
 }
-catch (OperationCanceledException) { }
-finally
+catch (OperationCanceledException)
 {
-    await scentService.StopAsync(CancellationToken.None);
+    Console.WriteLine("\n✓ Monitoring stopped by user.");
 }
 
 Console.WriteLine("\n? Cleanup complete.");
@@ -408,12 +374,12 @@ public sealed class GeoPackageUpdater : IDisposable
     /// <summary>
     /// Updates all rover-specific layers and the combined layer
     /// </summary>
-    public async Task UpdateAllRoverPolygonsAsync(ScentPolygonService service)
+    public async Task UpdateAllRoverPolygonsAsync(ScentPolygonGenerator generator)
  {
     if (_disposed || _gpkg == null) return;
 
   // Get all rover-specific unified polygons
-        var roverPolygons = service.GetAllRoverUnifiedPolygons();
+        var roverPolygons = await generator.GetRoverUnifiedPolygonsAsync();
         
     if (!roverPolygons.Any()) return;
 
@@ -475,7 +441,7 @@ public sealed class GeoPackageUpdater : IDisposable
         // Update combined layer
       try
         {
-       await UpdateCombinedLayerAsync(service);
+       await UpdateCombinedLayerAsync(generator);
       Console.WriteLine($"  ? Updated combined layer");
  }
  catch (Exception ex)
@@ -568,11 +534,11 @@ public sealed class GeoPackageUpdater : IDisposable
      }
     }
 
-    private async Task UpdateCombinedLayerAsync(ScentPolygonService service)
+    private async Task UpdateCombinedLayerAsync(ScentPolygonGenerator generator)
     {
   if (_combinedLayer == null) return;
 
-        var unified = service.GetUnifiedScentPolygonCached();
+        var unified = await generator.GetUnifiedPolygonAsync();
         if (unified == null || !unified.IsValid) return;
 
         await _combinedLayer.DeleteAsync("1=1"); // Clear existing

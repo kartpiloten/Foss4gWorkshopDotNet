@@ -4,6 +4,7 @@ using NetTopologySuite.IO;
 using RoverData.Repository;
 using ScentPolygonLibrary;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 
 // ====== Simple Rover Visualization Application ======
@@ -77,30 +78,18 @@ string FindForestFile()
 
 var forestPath = FindForestFile();
 
-// Register ScentPolygonService as singleton
-// Note: ScentPolygonService creates new repository instances in its StartAsync, not via DI
-builder.Services.AddSingleton<ScentPolygonService>(provider =>
+// Register memory cache for polygon caching
+builder.Services.AddMemoryCache();
+
+// Register ScentPolygonGenerator as scoped (matches repository lifetime)
+// Note: IMemoryCache is still singleton, so cache is shared across all requests
+builder.Services.AddScoped<ScentPolygonGenerator>(provider =>
 {
-    IRoverDataRepository repo;
-    if (dbType.ToLower() == "postgres")
-    {
-        var dataSource = provider.GetRequiredService<NpgsqlDataSource>();
-        var sessionRepository = provider.GetRequiredService<ISessionRepository>();
-        var sessionId = sessionRepository.RegisterOrGetSessionAsync(sessionName).GetAwaiter().GetResult();
-        var sessionContext = new ConsoleSessionContext(sessionId, sessionName);
-        repo = new PostgresRoverDataRepository(dataSource, sessionContext);
-        repo.InitializeAsync().GetAwaiter().GetResult();
-    }
-    else
-    {
-        var opts = provider.GetRequiredService<IOptions<GeoPackageRepositoryOptions>>();
-        var sessionContext = new ConsoleSessionContext(Guid.NewGuid(), sessionName);
-        repo = new GeoPackageRoverDataRepository(opts, sessionContext);
-        repo.InitializeAsync().GetAwaiter().GetResult();
-    }
-    return new ScentPolygonService(repo, forestGeoPackagePath: forestPath);
+    var repo = provider.GetRequiredService<IRoverDataRepository>();
+    var cache = provider.GetRequiredService<IMemoryCache>();
+    var config = new ScentPolygonConfiguration(); // Use default configuration
+    return new ScentPolygonGenerator(repo, cache, config, forestPath);
 });
-builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
 
 var app = builder.Build();
 
@@ -425,11 +414,11 @@ app.MapGet("/api/rover-sample", async (IRoverDataRepository repository, int? sam
 });
 
 // Combined coverage area (the only scent visualization we need)
-app.MapGet("/api/combined-coverage", (ScentPolygonService scentService) =>
+app.MapGet("/api/combined-coverage", async (ScentPolygonGenerator generator) =>
 {
     try
     {
-        var unified = scentService.GetUnifiedScentPolygonCached();
+        var unified = await generator.GetUnifiedPolygonAsync();
         if (unified == null || !unified.IsValid)
             return Results.NotFound("No coverage data available");
 

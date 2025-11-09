@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.2" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.10" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
   </ItemGroup>
