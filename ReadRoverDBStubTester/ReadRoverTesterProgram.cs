@@ -6,12 +6,12 @@ using Npgsql;
 // This project uses top-level statements (C# feature) to keep the sample minimal.
 
 /// <summary>
-/// Simple test to verify that GetLatestAsync returns fresh data from GeoPackage
+/// Simple test to verify that we can fetch the latest Rover Measurement from GeoPackage
 /// Run this while RoverSimulator is writing data to see if new measurements appear
 /// </summary>
 
 Console.WriteLine("========================================");
-Console.WriteLine("  TESTING GetLatestAsync");
+Console.WriteLine("  TESTING fetching latest Rover Measurement  ");
 Console.WriteLine("========================================");
 Console.WriteLine();
 Console.WriteLine("This test reads the latest measurement every 2 seconds");
@@ -102,7 +102,7 @@ using (reader)
         try
         {
             // Get the most recent measurement asynchronously (async/await)
-            var latest = await reader.GetLatestAsync();
+            var latest = (await reader.GetAllAsync()).LastOrDefault();
 
             if (latest != null)
             {

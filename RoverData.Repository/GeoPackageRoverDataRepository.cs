@@ -55,16 +55,6 @@ public class GeoPackageRoverDataRepository : IRoverDataRepository
         await geoPackage.EnsureLayerAsync("rover_measurements", schema, 4326);
     }
 
-    public async Task ResetAsync(CancellationToken cancellationToken = default)
-    {
-        if (File.Exists(_dbPath))
-        {
-            // Wait a bit to ensure any handles are released
-            await Task.Delay(100, cancellationToken);
-            File.Delete(_dbPath);
-        }
-    }
-
     public async Task InsertAsync(RoverMeasurement measurement, CancellationToken cancellationToken = default)
     {
         // Open connection per operation to avoid file locking
@@ -92,16 +82,6 @@ public class GeoPackageRoverDataRepository : IRoverDataRepository
             new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: false, ConflictPolicy: ConflictPolicy.Ignore),
             null,
             cancellationToken);
-    }
-
-    public async Task<long> GetCountAsync(CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(_dbPath))
-            return 0;
-
-        using var geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("rover_measurements", new Dictionary<string, string>(), 4326);
-        return await layer.CountAsync();
     }
 
     public async Task<List<RoverMeasurement>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -143,47 +123,6 @@ public class GeoPackageRoverDataRepository : IRoverDataRepository
         }
 
         return measurements;
-    }
-
-    public async Task<List<RoverMeasurement>> GetNewSinceTimestampAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(_dbPath))
-            return new List<RoverMeasurement>();
-
-        using var geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("rover_measurements", new Dictionary<string, string>(), 4326);
-
-        var iso = sinceUtc.ToString("O");
-        var readOptions = new ReadOptions(
-            IncludeGeometry: true,
-            WhereClause: $"recorded_at > '{iso}'",
-            OrderBy: "recorded_at ASC");
-
-        var measurements = new List<RoverMeasurement>();
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
-        {
-            measurements.Add(ConvertToMeasurement(feature));
-        }
-
-        return measurements;
-    }
-
-    public async Task<RoverMeasurement?> GetLatestAsync(CancellationToken cancellationToken = default)
-    {
-        if (!File.Exists(_dbPath))
-            return null;
-
-        using var geoPackage = await GeoPackage.OpenAsync(_dbPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("rover_measurements", new Dictionary<string, string>(), 4326);
-
-        var readOptions = new ReadOptions(IncludeGeometry: true, OrderBy: "sequence DESC", Limit: 1);
-
-        await foreach (var feature in layer.ReadFeaturesAsync(readOptions, cancellationToken))
-        {
-            return ConvertToMeasurement(feature);
-        }
-
-        return null;
     }
 
     private static RoverMeasurement ConvertToMeasurement(FeatureRecord feature)

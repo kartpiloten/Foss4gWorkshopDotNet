@@ -30,15 +30,6 @@ public class PostgresRoverDataRepository : IRoverDataRepository
         return Task.CompletedTask;
     }
 
-    public async Task ResetAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        var deleteSql = "DELETE FROM roverdata.rover_points WHERE session_id = @session_id;";
-        await using var cmd = new NpgsqlCommand(deleteSql, connection);
-        cmd.Parameters.AddWithValue("@session_id", _sessionContext.SessionId);
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     public async Task InsertAsync(RoverMeasurement measurement, CancellationToken cancellationToken = default)
     {
         var sessionId = measurement.SessionId == Guid.Empty ? _sessionContext.SessionId : measurement.SessionId;
@@ -62,16 +53,6 @@ VALUES (@rover_id, @rover_name, @session_id, @recorded_at, @latitude, @longitude
         cmd.Parameters.AddWithValue("@sequence", measurement.Sequence);
 
         await cmd.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    public async Task<long> GetCountAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        var sql = "SELECT COUNT(*) FROM roverdata.rover_points WHERE session_id = @session_id;";
-        await using var cmd = new NpgsqlCommand(sql, connection);
-        cmd.Parameters.AddWithValue("@session_id", _sessionContext.SessionId);
-        var result = await cmd.ExecuteScalarAsync(cancellationToken);
-        return Convert.ToInt64(result);
     }
 
     public async Task<List<RoverMeasurement>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -139,73 +120,6 @@ ORDER BY sequence ASC;";
             ));
         }
         return measurements;
-    }
-
-    public async Task<List<RoverMeasurement>> GetNewSinceTimestampAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        var sql = @"
-SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
-       wind_direction_deg, wind_speed_mps, geom
-FROM roverdata.rover_points
-WHERE session_id = @session_id AND recorded_at > @sinceUtc
-ORDER BY recorded_at ASC;";
-
-        await using var cmd = new NpgsqlCommand(sql, connection);
-        cmd.Parameters.AddWithValue("@session_id", _sessionContext.SessionId);
-        cmd.Parameters.AddWithValue("@sinceUtc", sinceUtc);
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-        var measurements = new List<RoverMeasurement>();
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            measurements.Add(new RoverMeasurement(
-                reader.GetFieldValue<Guid>(0),
-                reader.GetFieldValue<string>(1),
-                reader.GetFieldValue<Guid>(2),
-                reader.GetFieldValue<int>(3),
-                reader.GetFieldValue<DateTimeOffset>(4),
-                reader.GetFieldValue<double>(5),
-                reader.GetFieldValue<double>(6),
-                reader.GetFieldValue<short>(7),
-                reader.GetFieldValue<float>(8),
-                reader.GetFieldValue<Point>(9)
-            ));
-        }
-        return measurements;
-    }
-
-    public async Task<RoverMeasurement?> GetLatestAsync(CancellationToken cancellationToken = default)
-    {
-        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
-        var sql = @"
-SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
-       wind_direction_deg, wind_speed_mps, geom
-FROM roverdata.rover_points
-WHERE session_id = @session_id
-ORDER BY sequence DESC
-LIMIT 1;";
-
-        await using var cmd = new NpgsqlCommand(sql, connection);
-        cmd.Parameters.AddWithValue("@session_id", _sessionContext.SessionId);
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-        if (await reader.ReadAsync(cancellationToken))
-        {
-            return new RoverMeasurement(
-                reader.GetFieldValue<Guid>(0),
-                reader.GetFieldValue<string>(1),
-                reader.GetFieldValue<Guid>(2),
-                reader.GetFieldValue<int>(3),
-                reader.GetFieldValue<DateTimeOffset>(4),
-                reader.GetFieldValue<double>(5),
-                reader.GetFieldValue<double>(6),
-                reader.GetFieldValue<short>(7),
-                reader.GetFieldValue<float>(8),
-                reader.GetFieldValue<Point>(9)
-            );
-        }
-        return null;
     }
 
     public void Dispose()

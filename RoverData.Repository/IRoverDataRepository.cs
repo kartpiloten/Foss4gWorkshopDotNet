@@ -21,19 +21,9 @@ public interface IRoverDataRepository : IDisposable
     Task InitializeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Resets/clears all data for the current session.
-    /// </summary>
-    Task ResetAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Inserts a single measurement.
     /// </summary>
     Task InsertAsync(RoverMeasurement measurement, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets the total count of measurements for the current session.
-    /// </summary>
-    Task<long> GetCountAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets all measurements for the current session, ordered by sequence.
@@ -44,14 +34,4 @@ public interface IRoverDataRepository : IDisposable
     /// Gets measurements with sequence greater than the specified value.
     /// </summary>
     Task<List<RoverMeasurement>> GetNewSinceSequenceAsync(int lastSequence, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets measurements recorded after the specified timestamp.
-    /// </summary>
-    Task<List<RoverMeasurement>> GetNewSinceTimestampAsync(DateTimeOffset sinceUtc, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets the latest measurement (highest sequence) or null if none exist.
-    /// </summary>
-    Task<RoverMeasurement?> GetLatestAsync(CancellationToken cancellationToken = default);
 }
