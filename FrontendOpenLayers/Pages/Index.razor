@@ -23,7 +23,7 @@
     private ScentMap? _map;
     private string? _error;
     private Timer? _timer;
-    private int _lastSequence = 0;
+    private Dictionary<Guid, int> _lastSequencePerRover = new();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -71,13 +71,38 @@
                 return;
             }
 
-            var coordinates = points.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
-            var trail = new LineString(coordinates);
-            
-            if (_map != null)
-                await _map.UpdateTrailAsync(trail);
+            // Group measurements by rover
+            var roverGroups = points.GroupBy(p => new { p.RoverId, p.RoverName });
+            Console.WriteLine($"Index: Found {roverGroups.Count()} rovers with {points.Count} total points");
 
-            Console.WriteLine($"Index: Getting polygon for {points.Count} points...");
+            // Update trail and position for each rover
+            foreach (var roverGroup in roverGroups)
+            {
+                var roverPoints = roverGroup.OrderBy(p => p.Sequence).ToList();
+                var coordinates = roverPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
+                var trail = new LineString(coordinates);
+                
+                if (_map != null)
+                {
+                    await _map.UpdateRoverTrailAsync(roverGroup.Key.RoverId, roverGroup.Key.RoverName, trail);
+                    
+                    var latest = roverPoints.Last();
+                    await _map.UpdateRoverPositionAsync(
+                        roverGroup.Key.RoverId,
+                        roverGroup.Key.RoverName,
+                        new Point(latest.Longitude, latest.Latitude),
+                        latest.WindSpeedMps,
+                        latest.WindDirectionDeg
+                    );
+                }
+                
+                // Track last sequence per rover
+                _lastSequencePerRover[roverGroup.Key.RoverId] = roverPoints.Max(p => p.Sequence);
+                
+                Console.WriteLine($"Index: Updated rover {roverGroup.Key.RoverName} with {roverPoints.Count} points, last seq: {_lastSequencePerRover[roverGroup.Key.RoverId]}");
+            }
+
+            Console.WriteLine($"Index: Getting combined coverage polygon for {points.Count} points...");
             var coverage = await generator.GetUnifiedPolygonAsync();
             Console.WriteLine($"Index: Coverage polygon null? {coverage?.Polygon == null}");
             if (coverage?.Polygon != null && _map != null)
@@ -86,16 +111,6 @@
                 await _map.UpdateCoverageAsync(coverage.Polygon);
                 Console.WriteLine("Index: UpdateCoverageAsync completed");
             }
-
-            _lastSequence = points.Max(p => p.Sequence);
-
-            var latest = points.Last();
-            if (_map != null)
-                await _map.UpdatePositionAsync(
-                    new Point(latest.Longitude, latest.Latitude),
-                    latest.WindSpeedMps,
-                    latest.WindDirectionDeg
-                );
             
             await InvokeAsync(StateHasChanged);
         }
@@ -115,29 +130,50 @@
             var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
             var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();
             
-            var newPoints = await reader.GetNewSinceSequenceAsync(_lastSequence);
+            // Get the minimum last sequence across all rovers (or 0 if none)
+            var minLastSequence = _lastSequencePerRover.Count > 0 ? _lastSequencePerRover.Values.Min() : 0;
+            var newPoints = await reader.GetNewSinceSequenceAsync(minLastSequence);
             if (newPoints.Count == 0) return;
             
-            var newCoords = newPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
+            // Group new points by rover
+            var roverGroups = newPoints.GroupBy(p => new { p.RoverId, p.RoverName });
             
-            if (_map != null)
-                await _map.AppendTrailCoordsAsync(newCoords);
+            foreach (var roverGroup in roverGroups)
+            {
+                // Get last sequence for this specific rover
+                var lastSeq = _lastSequencePerRover.GetValueOrDefault(roverGroup.Key.RoverId, 0);
+                
+                // Filter to only points newer than this rover's last sequence
+                var roverNewPoints = roverGroup.Where(p => p.Sequence > lastSeq).OrderBy(p => p.Sequence).ToList();
+                
+                if (roverNewPoints.Count == 0) continue;
+                
+                var newCoords = roverNewPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
+                
+                if (_map != null)
+                {
+                    await _map.AppendRoverTrailCoordsAsync(roverGroup.Key.RoverId, roverGroup.Key.RoverName, newCoords);
+                    
+                    var latest = roverNewPoints.Last();
+                    await _map.UpdateRoverPositionAsync(
+                        roverGroup.Key.RoverId,
+                        roverGroup.Key.RoverName,
+                        new Point(latest.Longitude, latest.Latitude),
+                        latest.WindSpeedMps,
+                        latest.WindDirectionDeg
+                    );
+                }
+                
+                // Update last sequence for this rover
+                _lastSequencePerRover[roverGroup.Key.RoverId] = roverNewPoints.Max(p => p.Sequence);
+                Console.WriteLine($"Index: Updated rover {roverGroup.Key.RoverName} with {roverNewPoints.Count} new points, last seq: {_lastSequencePerRover[roverGroup.Key.RoverId]}");
+            }
 
             var coverage = await generator.GetUnifiedPolygonAsync();
             if (coverage?.Polygon != null && _map != null)
             {
                 await _map.UpdateCoverageAsync(coverage.Polygon);
             }
-
-            _lastSequence = newPoints.Max(p => p.Sequence);
-
-            var latest = newPoints.Last();
-            if (_map != null)
-                await _map.UpdatePositionAsync(
-                    new Point(latest.Longitude, latest.Latitude),
-                    latest.WindSpeedMps,
-                    latest.WindDirectionDeg
-                );
             
             await InvokeAsync(StateHasChanged);
         }

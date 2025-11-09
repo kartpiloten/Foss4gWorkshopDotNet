@@ -72,13 +72,13 @@ using (reader)
 
     // First, let's check what's actually in the database
     Console.WriteLine("=== CHECKING DATABASE CONTENTS ===");
-    var totalCount = await reader.GetCountAsync();
+    var allMeasurements = await reader.GetAllAsync();
+    var totalCount = allMeasurements.Count();
     Console.WriteLine($"Total measurements in database: {totalCount}");
 
     if (totalCount > 0)
     {
         // LINQ is used here to project and take subsets of the sequence list
-        var allMeasurements = await reader.GetAllAsync();
         Console.WriteLine($"First 5 sequences: {string.Join(", ", allMeasurements.Take(5).Select(m => m.Sequence))}");
         Console.WriteLine($"Last 5 sequences: {string.Join(", ", allMeasurements.TakeLast(5).Select(m => m.Sequence))}");
         Console.WriteLine($"Highest sequence number: {allMeasurements.Max(m => m.Sequence)}");

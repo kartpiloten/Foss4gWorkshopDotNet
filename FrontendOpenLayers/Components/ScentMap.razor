@@ -16,13 +16,8 @@
     public string Id { get; set; } = "map";
     
     private bool _initialized = false;
-
     private IJSObjectReference? _module;
-    private LineString? _trail;
     private Polygon? _coverage;
-    private Point? _latestPosition;
-    private float _windSpeed;
-    private short _windDirection;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -47,13 +42,12 @@
         }
     }
 
-    public async Task UpdateTrailAsync(LineString trail)
+    public async Task UpdateRoverTrailAsync(Guid roverId, string roverName, LineString trail)
     {
         if (_module == null || trail == null) return;
         
-        _trail = trail;
         var floatArray = trail.Coordinates.ToFloatArray();
-        await _module.InvokeVoidAsync("updateTrail", Id, floatArray);
+        await _module.InvokeVoidAsync("updateRoverTrail", Id, roverId.ToString(), roverName, floatArray);
     }
 
     public async Task UpdateCoverageAsync(Polygon coverage)
@@ -65,23 +59,19 @@
         await _module.InvokeVoidAsync("updateCoverage", Id, floatArray);
     }
 
-    public async Task UpdatePositionAsync(Point position, float windSpeed, short windDirection)
+    public async Task UpdateRoverPositionAsync(Guid roverId, string roverName, Point position, float windSpeed, short windDirection)
     {
         if (_module == null || position == null) return;
         
-        _latestPosition = position;
-        _windSpeed = windSpeed;
-        _windDirection = windDirection;
-        
-        await _module.InvokeVoidAsync("updatePosition", Id, position.X, position.Y, windSpeed, windDirection);
+        await _module.InvokeVoidAsync("updateRoverPosition", Id, roverId.ToString(), roverName, position.X, position.Y, windSpeed, windDirection);
     }
 
-    public async Task AppendTrailCoordsAsync(Coordinate[] newCoords)
+    public async Task AppendRoverTrailCoordsAsync(Guid roverId, string roverName, Coordinate[] newCoords)
     {
         if (_module == null || newCoords == null || newCoords.Length == 0) return;
         
         var floatArray = newCoords.ToFloatArray();
-        await _module.InvokeVoidAsync("appendTrail", Id, floatArray);
+        await _module.InvokeVoidAsync("appendRoverTrail", Id, roverId.ToString(), roverName, floatArray);
     }
 
     public async ValueTask DisposeAsync()

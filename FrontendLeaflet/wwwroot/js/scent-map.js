@@ -1,7 +1,29 @@
 // Scent Map - Binary JS Interop wrapper for Leaflet
-// Provides efficient map updates from Blazor components
+// Provides efficient map updates from Blazor components with multi-rover support
 
 const maps = {};
+
+// Color palette for different rovers
+const ROVER_COLORS = [
+    '#FF4444', // Red
+    '#44FF44', // Green
+    '#4444FF', // Blue
+    '#FFAA44', // Orange
+    '#FF44FF', // Magenta
+    '#44FFFF', // Cyan
+    '#FFFF44', // Yellow
+    '#AA44FF'  // Purple
+];
+
+function getRoverColor(roverId, roverIndex) {
+    // Use hash of roverId for consistent colors
+    let hash = 0;
+    for (let i = 0; i < roverId.length; i++) {
+        hash = ((hash << 5) - hash) + roverId.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return ROVER_COLORS[Math.abs(hash) % ROVER_COLORS.length];
+}
 
 export function initMap(id) {
     if (maps[id]) return;
@@ -24,9 +46,8 @@ export function initMap(id) {
     // Create reusable layers
     const layers = {
         forest: null,
-        trail: null,
         coverage: null,
-        position: null
+        rovers: {}  // { roverId: { trail: L.polyline, position: L.marker, name: string, color: string } }
     };
 
     // Load forest boundary once
@@ -47,7 +68,7 @@ export function initMap(id) {
     console.log(`Map initialized: ${id}`);
 }
 
-export function updateTrail(id, floatArray) {
+export function updateRoverTrail(id, roverId, roverName, floatArray) {
     const mapData = maps[id];
     if (!mapData) return;
 
@@ -56,14 +77,29 @@ export function updateTrail(id, floatArray) {
         coords.push([floatArray[i + 1], floatArray[i]]); // [lat, lng]
     }
 
-    if (mapData.layers.trail) {
-        mapData.layers.trail.setLatLngs(coords);
+    // Get or create rover entry
+    if (!mapData.layers.rovers[roverId]) {
+        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        mapData.layers.rovers[roverId] = {
+            trail: null,
+            position: null,
+            name: roverName,
+            color: color
+        };
+    }
+
+    const rover = mapData.layers.rovers[roverId];
+    
+    if (rover.trail) {
+        rover.trail.setLatLngs(coords);
     } else {
-        mapData.layers.trail = L.polyline(coords, {
-            color: '#FF4444',
+        rover.trail = L.polyline(coords, {
+            color: rover.color,
             weight: 3,
             opacity: 0.7
         }).addTo(mapData.map);
+        
+        rover.trail.bindPopup(`<strong>${roverName}</strong>`);
     }
 }
 
@@ -87,44 +123,71 @@ export function updateCoverage(id, floatArray) {
     }
 }
 
-export function updatePosition(id, lng, lat, windSpeed, windDirection) {
+export function updateRoverPosition(id, roverId, roverName, lng, lat, windSpeed, windDirection) {
     const mapData = maps[id];
     if (!mapData) return;
 
     const latLng = [lat, lng];
 
-    if (mapData.layers.position) {
-        mapData.layers.position.setLatLng(latLng);
-        mapData.layers.position.bindTooltip(
-            `<strong>Wind: ${windSpeed.toFixed(1)} m/s @ ${windDirection}°</strong>`,
+    // Get or create rover entry
+    if (!mapData.layers.rovers[roverId]) {
+        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        mapData.layers.rovers[roverId] = {
+            trail: null,
+            position: null,
+            name: roverName,
+            color: color
+        };
+    }
+
+    const rover = mapData.layers.rovers[roverId];
+
+    if (rover.position) {
+        rover.position.setLatLng(latLng);
+        rover.position.bindTooltip(
+            `<strong>${roverName}</strong><br/>Wind: ${windSpeed.toFixed(1)} m/s @ ${windDirection}°`,
             { permanent: true, direction: 'top' }
         );
     } else {
-        mapData.layers.position = L.circleMarker(latLng, {
+        rover.position = L.circleMarker(latLng, {
             radius: 8,
-            color: '#FF0000',
-            fillColor: '#FF0000',
+            color: rover.color,
+            fillColor: rover.color,
             fillOpacity: 0.8,
             weight: 2
         }).addTo(mapData.map);
 
-        mapData.layers.position.bindTooltip(
-            `<strong>Wind: ${windSpeed.toFixed(1)} m/s @ ${windDirection}°</strong>`,
+        rover.position.bindTooltip(
+            `<strong>${roverName}</strong><br/>Wind: ${windSpeed.toFixed(1)} m/s @ ${windDirection}°`,
             { permanent: true, direction: 'top' }
         );
     }
 }
 
-export function appendTrail(id, floatArray) {
+export function appendRoverTrail(id, roverId, roverName, floatArray) {
     const mapData = maps[id];
-    if (!mapData || !mapData.layers.trail) return;
+    if (!mapData) return;
 
-    const existingCoords = mapData.layers.trail.getLatLngs();
+    // Get or create rover entry
+    if (!mapData.layers.rovers[roverId]) {
+        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        mapData.layers.rovers[roverId] = {
+            trail: null,
+            position: null,
+            name: roverName,
+            color: color
+        };
+    }
+
+    const rover = mapData.layers.rovers[roverId];
+    if (!rover.trail) return;
+
+    const existingCoords = rover.trail.getLatLngs();
     const newCoords = [];
     
     for (let i = 0; i < floatArray.length; i += 2) {
         newCoords.push([floatArray[i + 1], floatArray[i]]); // [lat, lng]
     }
 
-    mapData.layers.trail.setLatLngs([...existingCoords, ...newCoords]);
+    rover.trail.setLatLngs([...existingCoords, ...newCoords]);
 }
