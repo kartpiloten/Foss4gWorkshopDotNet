@@ -1,43 +1,21 @@
 @page "/"
-@using FrontendLeaflet.Components
-@using NetTopologySuite.Geometries
-@using ScentPolygonLibrary
-@using RoverData.Repository
-@inject IServiceProvider ServiceProvider
 
-<ScentMap @ref="_map" />
-
-<div style="position: fixed; top: 10px; left: 10px; z-index: 1000; background: rgba(255,255,255,0.95); padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); pointer-events: auto; max-width: 300px;">
-    <h3 style="margin: 0 0 10px 0; font-size: 1.5rem; color: #2d5a27;">FrontendLeaflet Rover Tracker</h3>
-    <div style="margin-top: 10px;">
-        <div>Points: @_pointCount</div>
-        <div>Status: @_status</div>
-    </div>
-</div>
-
-@if (!string.IsNullOrEmpty(_error))
-{
-    <div style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1001; background: rgba(220, 53, 69, 0.95); color: white; padding: 10px 20px; border-radius: 6px; pointer-events: auto;">
-        Error: @_error
-    </div>
-}
+<h1 style="color: red; font-size: 48px;">HELLO WORLD</h1>
+<p style="color: blue; font-size: 24px;">If you can see this, Blazor is working</p>
 
 @code {
     private ScentMap? _map;
     private string? _error;
     private Timer? _timer;
     private int _lastSequence = 0;
-    private int _pointCount = 0;
-    private string _status = "Initializing...";
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await Task.Delay(500);
-            
             try
             {
+                Console.WriteLine("Index: OnAfterRenderAsync - starting initialization");
                 await LoadInitialDataAsync();
                 _timer = new Timer(async _ =>
                 {
@@ -62,31 +40,39 @@
 
     private async Task LoadInitialDataAsync()
     {
-        Console.WriteLine("Index: LoadInitialDataAsync starting...");
         try
         {
-            using var scope = ServiceProvider.CreateScope();
-            var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
-            var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();      
-            var points = await Task.Run(() => reader.GetAllAsync());
-            _pointCount = points.Count;
+            Console.WriteLine("LoadInitialDataAsync: Starting...");
+            var points = await Reader.GetAllAsync();
+            Console.WriteLine($"LoadInitialDataAsync: Got {points.Count} points");
             
             if (points.Count == 0)
             {
-                _status = "Waiting for data...";
-                await InvokeAsync(StateHasChanged);
+                Console.WriteLine("LoadInitialDataAsync: No points, returning");
                 return;
             }
 
             var coordinates = points.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
             var trail = new LineString(coordinates);
             
+            Console.WriteLine($"LoadInitialDataAsync: Created trail with {coordinates.Length} coordinates");
+            
             if (_map != null)
+            {
+                Console.WriteLine("LoadInitialDataAsync: Updating trail");
                 await _map.UpdateTrailAsync(trail);
+            }
+            else
+            {
+                Console.WriteLine("LoadInitialDataAsync: _map is null!");
+            }
 
-            var coverage = await generator.GetUnifiedPolygonAsync();
+            var coverage = await Generator.GetUnifiedPolygonAsync();
+            Console.WriteLine($"LoadInitialDataAsync: Got coverage: {coverage != null}");
+            
             if (coverage?.Polygon != null && _map != null)
             {
+                Console.WriteLine("LoadInitialDataAsync: Updating coverage");
                 await _map.UpdateCoverageAsync(coverage.Polygon);
             }
 
@@ -94,19 +80,20 @@
 
             var latest = points.Last();
             if (_map != null)
+            {
+                Console.WriteLine($"LoadInitialDataAsync: Updating position to ({latest.Longitude}, {latest.Latitude})");
                 await _map.UpdatePositionAsync(
                     new Point(latest.Longitude, latest.Latitude),
                     latest.WindSpeedMps,
                     latest.WindDirectionDeg
                 );
+            }
             
-            _status = "Active";
-            await InvokeAsync(StateHasChanged);
+            Console.WriteLine("LoadInitialDataAsync: Complete");
         }
         catch (Exception ex)
         {
             _error = ex.Message;
-            _status = "Error";
             Console.WriteLine($"LoadInitialDataAsync error: {ex}");
             await InvokeAsync(StateHasChanged);
         }
@@ -116,25 +103,17 @@
     {
         try
         {
-            using var scope = ServiceProvider.CreateScope();
-            var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
-            var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();
-            
-            var newPoints = await reader.GetNewSinceSequenceAsync(_lastSequence);
+            var newPoints = await Reader.GetNewSinceSequenceAsync(_lastSequence);
             if (newPoints.Count == 0) return;
 
-            _pointCount += newPoints.Count;
-            
             var newCoords = newPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
             
             if (_map != null)
                 await _map.AppendTrailCoordsAsync(newCoords);
 
-            var coverage = await generator.GetUnifiedPolygonAsync();
+            var coverage = await Generator.GetUnifiedPolygonAsync();
             if (coverage?.Polygon != null && _map != null)
-            {
                 await _map.UpdateCoverageAsync(coverage.Polygon);
-            }
 
             _lastSequence = newPoints.Max(p => p.Sequence);
 
@@ -145,8 +124,6 @@
                     latest.WindSpeedMps,
                     latest.WindDirectionDeg
                 );
-            
-            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
