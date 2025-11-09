@@ -36,11 +36,17 @@ if (dbType.ToLower() == "postgres")
     // Initialize database schema once at startup
     builder.Services.AddSingleton<PostgresDatabaseInitializer>();
 
-    // Register session context as scoped (for future per-request session selection)
+    // Initialize session once at startup and cache the ID
+    Guid sessionId;
+    using (var tempScope = builder.Services.BuildServiceProvider().CreateScope())
+    {
+        var sessionRepo = tempScope.ServiceProvider.GetRequiredService<ISessionRepository>();
+        sessionId = await sessionRepo.RegisterOrGetSessionAsync(sessionName);
+        Console.WriteLine($"Session registered: {sessionName} -> {sessionId}");
+    }
+    
     builder.Services.AddScoped<ISessionContext>(provider =>
     {
-        var sessionRepository = provider.GetRequiredService<ISessionRepository>();
-        var sessionId = sessionRepository.RegisterOrGetSessionAsync(sessionName).GetAwaiter().GetResult();
         return new WebSessionContext(sessionId, sessionName);
     });
 
@@ -195,265 +201,11 @@ app.MapGet("/api/forest-bounds", async () =>
     }
 });
 
-// OPTIMIZED: Latest rover measurement points (limited for performance)
-app.MapGet("/api/rover-data", async (IRoverDataRepository repository, int? limit = 100) =>
-{
-    try
-    {
-        // Get total count for statistics
-        var totalCount = await repository.GetCountAsync();
-        
-        // Get limited number of latest measurements for performance
-        var measurements = await repository.GetAllAsync();
-        var limitedMeasurements = measurements
-            .OrderByDescending(m => m.Sequence)
-            .Take(limit ?? 100)
-            .OrderBy(m => m.Sequence) // Re-order chronologically
-            .ToList();
-        
-        var features = limitedMeasurements.Select(m => new
-        {
-            type = "Feature",
-            properties = new
-            {
-                sequence = m.Sequence,
-                windDirection = m.WindDirectionDeg,
-                windSpeed = m.WindSpeedMps,
-                time = m.RecordedAt.ToString("HH:mm:ss")
-            },
-            geometry = new
-            {
-                type = "Point",
-                coordinates = new[] { m.Longitude, m.Latitude }
-            }
-        });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features,
-            metadata = new { 
-                totalCount, 
-                shownCount = limitedMeasurements.Count,
-                isLimited = totalCount > (limit ?? 100)
-            }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// NEW: Rover trail as a single LineString for better performance with many points
-// If 'after' timestamp is provided, only returns points after that time
-app.MapGet("/api/rover-trail", async (IRoverDataRepository repository, string? after = null) =>
-{
-    try
-    {
-        var measurements = await repository.GetAllAsync();
-        
-        if (!measurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        // Filter by timestamp if 'after' parameter is provided
-        var filteredMeasurements = measurements.OrderBy(m => m.Sequence);
-        
-        if (!string.IsNullOrEmpty(after) && DateTime.TryParse(after, out var afterTime))
-        {
-            filteredMeasurements = filteredMeasurements.Where(m => m.RecordedAt > afterTime).OrderBy(m => m.Sequence);
-        }
-        
-        var limitedMeasurements = filteredMeasurements.ToList();
-        
-        if (!limitedMeasurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        // Create a LineString from the coordinates
-        var coordinates = limitedMeasurements
-            .Select(m => new[] { m.Longitude, m.Latitude })
-            .ToArray();
-        
-        var lineFeature = new
-        {
-            type = "Feature",
-            properties = new
-            {
-                name = "Rover Trail",
-                pointCount = limitedMeasurements.Count,
-                totalPoints = measurements.Count(),
-                startTime = limitedMeasurements.First().RecordedAt.ToString("o"),
-                endTime = limitedMeasurements.Last().RecordedAt.ToString("o")
-            },
-            geometry = new
-            {
-                type = "LineString",
-                coordinates
-            }
-        };
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new[] { lineFeature }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// OPTIMIZED: Rover statistics for info display
-app.MapGet("/api/rover-stats", async (IRoverDataRepository repository) =>
-{
-    try
-    {
-        var totalCount = await repository.GetCountAsync();
-        var latest = await repository.GetLatestAsync();
-        
-        return Results.Json(new
-        {
-            totalMeasurements = totalCount,
-            latestSequence = latest?.Sequence ?? -1,
-            latestTime = latest?.RecordedAt.ToString("HH:mm:ss"),
-            latestPosition = latest != null ? new { 
-                lat = latest.Latitude, 
-                lng = latest.Longitude,
-                windSpeed = latest.WindSpeedMps,
-                windDirection = latest.WindDirectionDeg
-            } : null
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            error = ex.Message,
-            totalMeasurements = 0
-        });
-    }
-});
-
-// NEW: Sampling API - get evenly distributed points for large datasets
-app.MapGet("/api/rover-sample", async (IRoverDataRepository repository, int? sampleSize = 200) =>
-{
-    try
-    {
-        var measurements = await repository.GetAllAsync();
-        
-        if (!measurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        var orderedMeasurements = measurements.OrderBy(m => m.Sequence).ToList();
-        var totalCount = orderedMeasurements.Count;
-        var requestedSample = sampleSize ?? 200;
-        
-        List<RoverMeasurement> sampledMeasurements;
-        
-        if (totalCount <= requestedSample)
-        {
-            // If we have fewer points than requested, return all
-            sampledMeasurements = orderedMeasurements;
-        }
-        else
-        {
-            // Sample evenly across the dataset
-            sampledMeasurements = new List<RoverMeasurement>();
-            var step = (double)totalCount / requestedSample;
-            
-            for (int i = 0; i < requestedSample; i++)
-            {
-                var index = (int)Math.Round(i * step);
-                if (index >= totalCount) index = totalCount - 1;
-                sampledMeasurements.Add(orderedMeasurements[index]);
-            }
-        }
-        
-        var features = sampledMeasurements.Select(m => new
-        {
-            type = "Feature",
-            properties = new
-            {
-                sequence = m.Sequence,
-                windDirection = m.WindDirectionDeg,
-                windSpeed = m.WindSpeedMps,
-                time = m.RecordedAt.ToString("HH:mm:ss")
-            },
-            geometry = new
-            {
-                type = "Point",
-                coordinates = new[] { m.Longitude, m.Latitude }
-            }
-        });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features,
-            metadata = new {
-                totalCount,
-                sampleSize = sampledMeasurements.Count,
-                samplingRatio = (double)sampledMeasurements.Count / totalCount
-            }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// Combined coverage area (the only scent visualization we need)
-app.MapGet("/api/combined-coverage", async (ScentPolygonGenerator generator) =>
-{
-    try
-    {
-        var unified = await generator.GetUnifiedPolygonAsync();
-        if (unified == null || !unified.IsValid)
-            return Results.NotFound("No coverage data available");
-
-        var geoJsonWriter = new GeoJsonWriter();
-        var geoJsonGeometry = geoJsonWriter.Write(unified.Polygon);
-
-        return Results.Json(new
-        {
-            type = "FeatureCollection",
-            features = new[]
-            {
-                new
-                {
-                    type = "Feature",
-                    properties = new
-                    {
-                        totalPolygons = unified.PolygonCount,
-                        areaHectares = Math.Round(unified.TotalAreaM2 / 10000.0, 1),
-                        avgWindSpeed = Math.Round(unified.AverageWindSpeedMps, 1)
-                    },
-                    geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
-                }
-            }
-        });
-    }
-    catch
-    {
-        return Results.NotFound();
-    }
-});
-
 // ====== Helper Functions ======
 
 Console.WriteLine("Starting FrontendOpenLayers rover tracker...");
 Console.WriteLine("Performance optimizations enabled for large datasets");
-Console.WriteLine("Individual wind polygons removed to reduce visual clutter");
+Console.WriteLine("Using OpenLayers for interactive mapping");
 Console.WriteLine("Open your browser to see the clean map visualization");
 
 app.Run();

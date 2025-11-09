@@ -97,7 +97,7 @@ public class ScentPolygonGenerator
             }
             
             return roverPolygons;
-        });
+        }) ?? new List<RoverUnifiedPolygon>();
     }
 
     /// <summary>
