@@ -63,7 +63,7 @@
             using var scope = ServiceProvider.CreateScope();
             var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
             var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();      
-            var points = await Task.Run(() => reader.GetAllAsync());
+            var points = await reader.GetAllAsync();
             
             if (points.Count == 0)
             {

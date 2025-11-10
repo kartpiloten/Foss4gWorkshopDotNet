@@ -203,8 +203,6 @@ app.MapGet("/api/forest-bounds", async () =>
     }
 });
 
-// Removed obsolete API endpoints - map updates now handled by Blazor component
-
 // ====== Helper Functions ======
 
 Console.WriteLine("Starting FrontendLeaflet rover tracker...");
