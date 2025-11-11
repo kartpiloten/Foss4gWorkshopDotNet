@@ -71,7 +71,6 @@ Behåll endast:
 
 - /api/test
 - /api/forest
-- /api/forest-bounds
 
 ---
 

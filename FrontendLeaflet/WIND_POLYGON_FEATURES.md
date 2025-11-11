@@ -14,7 +14,6 @@ It focuses on a single, unified coverage polygon (no individual wind polygons) f
 
 ## API Endpoints Used
 - GET `/api/forest` — RiverHeadForest boundary polygon (GeoPackage)
-- GET `/api/forest-bounds` — Center + bounds for initial map view
 - GET `/api/rover-trail?limit=500` — Rover trail as a single LineString (server limits as needed)
 - GET `/api/rover-stats` — Latest rover position and wind data
 - GET `/api/combined-coverage` — Unified scent coverage polygon (union of all scent polygons)

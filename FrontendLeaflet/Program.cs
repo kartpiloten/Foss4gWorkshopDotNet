@@ -164,45 +164,6 @@ app.MapGet("/api/forest", async () =>
     }
 });
 
-// Forest bounds for map centering
-app.MapGet("/api/forest-bounds", async () =>
-{
-    try
-    {
-        var forestPath = FindForestFile();
-        if (!File.Exists(forestPath))
-            return Results.NotFound();
-
-        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
-        {
-            if (feature.Geometry is Polygon polygon)
-            {
-                var envelope = polygon.EnvelopeInternal;
-                var centroid = polygon.Centroid;
-                
-                return Results.Json(new
-                {
-                    center = new { lat = centroid.Y, lng = centroid.X },
-                    bounds = new
-                    {
-                        minLat = envelope.MinY, maxLat = envelope.MaxY,
-                        minLng = envelope.MinX, maxLng = envelope.MaxX
-                    }
-                });
-            }
-        }
-        
-        return Results.NotFound();
-    }
-    catch
-    {
-        return Results.NotFound();
-    }
-});
-
 // ====== Helper Functions ======
 
 Console.WriteLine("Starting FrontendLeaflet rover tracker...");
