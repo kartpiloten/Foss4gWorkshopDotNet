@@ -23,11 +23,11 @@ The `ForestBoundaryReader` class provides simple access to forest boundary polyg
 ### Code Example
 
 ```csharp
-using ReadRoverDBStubLibrary;
+using RoverData.Repository;
 
 // Create the reader
 var boundaryReader = new ForestBoundaryReader(
-    "Solutionresources/RiverHeadForest.gpkg", 
+    "Solutionresources/RiverHeadForest.gpkg",
     layerName: "riverheadforest");
 
 // Get the boundary polygon
@@ -83,11 +83,20 @@ var reader = new ForestBoundaryReader(boundaryPath);
 
 ## Features
 
-- **Lazy Loading**: Boundary is loaded only when first accessed
-- **Caching**: Once loaded, the boundary is cached in memory
-- **Async/Await**: All operations are non-blocking
-- **Cancellation Support**: Accepts CancellationToken for cooperative cancellation
-- **Silent Errors**: Returns null on errors (no exceptions for missing files)
+- **Lazy Loading**: Boundary is loaded only when first accessed.
+- **Caching**: Once loaded, the boundary polygon and bounding box are cached in memory for the lifetime of the `ForestBoundaryReader` instance.
+- **Async/Await**: All public methods are asynchronous and support non-blocking usage.
+- **Cancellation Support**: Methods accept an optional `CancellationToken` for cooperative cancellation.
+- **Silent Errors**: The implementation returns `null` on missing files or on internal failures (it intentionally swallows exceptions). Callers should treat `null` as "boundary unavailable" and handle it appropriately.
+
+> Note: The reader intentionally avoids throwing for missing or malformed GeoPackage files; this keeps downstream sample apps simple but means callers must check for `null` and handle that case.
+
+## Dependencies
+
+- `MapPiloteGeopackageHelper` - Async GeoPackage reader used to open and read layers/features.
+- `NetTopologySuite` - Geometry types and operations (Polygon, Point, Envelope, Centroid).
+
+Ensure these packages are referenced in the project that consumes `ForestBoundaryReader`.
 
 ## File Format
 
