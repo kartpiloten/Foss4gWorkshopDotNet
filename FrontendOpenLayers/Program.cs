@@ -1,9 +1,11 @@
 using MapPiloteGeopackageHelper;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
-using ReadRoverDBStubLibrary;
+using RoverData.Repository;
 using ScentPolygonLibrary;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 
 // ====== Simple Rover Visualization Application ======
 
@@ -14,20 +16,59 @@ var builder = WebApplication.CreateBuilder(args);
 // Basic services
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
-builder.Services.Configure<DatabaseConfiguration>(
-    builder.Configuration.GetSection("DatabaseConfiguration"));
 
-// Simple rover data reader configuration
-builder.Services.AddSingleton<IRoverDataReader>(provider =>
+// Configure repository based on appsettings.json
+var dbType = builder.Configuration["DatabaseConfiguration:DatabaseType"] ?? "geopackage";
+var sessionName = builder.Configuration["DatabaseConfiguration:SessionName"] ?? "default";
+
+if (dbType.ToLower() == "postgres")
 {
-    var options = provider.GetRequiredService<IOptions<DatabaseConfiguration>>();
-    var databaseConfig = options.Value ?? throw new InvalidOperationException("Database configuration is unavailable.");
+    // Register NpgsqlDataSource as a singleton (connection pool)
+    var connStr = builder.Configuration["DatabaseConfiguration:PostgresConnectionString"] ?? "";
+    builder.Services.AddNpgsqlDataSource(connStr, dataSourceBuilder =>
+    {
+        dataSourceBuilder.UseNetTopologySuite();
+    });
 
-    var reader = RoverDataReaderFactory.CreateReader(databaseConfig);
-    reader.InitializeAsync().GetAwaiter().GetResult();
-    Console.WriteLine($"Rover data reader initialized for database type '{databaseConfig.DatabaseType}'.");
-    return reader;
-});
+    // Register SessionRepository for session management
+    builder.Services.AddSingleton<ISessionRepository, SessionRepository>();
+
+    // Initialize database schema once at startup
+    builder.Services.AddSingleton<PostgresDatabaseInitializer>();
+
+    // Initialize session once at startup and cache the ID
+    Guid sessionId;
+    using (var tempScope = builder.Services.BuildServiceProvider().CreateScope())
+    {
+        var sessionRepo = tempScope.ServiceProvider.GetRequiredService<ISessionRepository>();
+        sessionId = await sessionRepo.RegisterOrGetSessionAsync(sessionName);
+        Console.WriteLine($"Session registered: {sessionName} -> {sessionId}");
+    }
+    
+    builder.Services.AddScoped<ISessionContext>(provider =>
+    {
+        return new WebSessionContext(sessionId, sessionName);
+    });
+
+    // Register scoped repository
+    builder.Services.AddScoped<IRoverDataRepository, PostgresRoverDataRepository>();
+}
+else
+{
+    builder.Services.Configure<GeoPackageRepositoryOptions>(options =>
+    {
+        options.FolderPath = builder.Configuration["DatabaseConfiguration:GeoPackageFolderPath"] ?? "/tmp/Rover1";
+    });
+
+    // For GeoPackage, session context is simpler (filename-based)
+    builder.Services.AddScoped<ISessionContext>(provider =>
+    {
+        // Generate a session ID for GeoPackage (file-based, so just need unique ID)
+        return new WebSessionContext(Guid.NewGuid(), sessionName);
+    });
+
+    builder.Services.AddScoped<IRoverDataRepository, GeoPackageRoverDataRepository>();
+}
 
 // Find forest file path
 string FindForestFile()
@@ -43,15 +84,35 @@ string FindForestFile()
 
 var forestPath = FindForestFile();
 
-// Simple scent polygon service with forest path for real-time updates
-builder.Services.AddSingleton<ScentPolygonService>(provider =>
+// Register memory cache for polygon caching
+builder.Services.AddMemoryCache();
+
+// Register ScentPolygonGenerator as scoped (matches repository lifetime)
+// Note: IMemoryCache is still singleton, so cache is shared across all requests
+builder.Services.AddScoped<ScentPolygonGenerator>(provider =>
 {
-    var reader = provider.GetRequiredService<IRoverDataReader>();
-    return new ScentPolygonService(reader, forestGeoPackagePath: forestPath);
+    var repo = provider.GetRequiredService<IRoverDataRepository>();
+    var cache = provider.GetRequiredService<IMemoryCache>();
+    var config = new ScentPolygonConfiguration(); // Use default configuration
+    return new ScentPolygonGenerator(repo, cache, config, forestPath);
 });
-builder.Services.AddHostedService<ScentPolygonService>(provider => provider.GetRequiredService<ScentPolygonService>());
+
+// Register ForestBoundaryReader as a singleton (forest boundary doesn't change)
+builder.Services.AddSingleton<ForestBoundaryReader>(provider =>
+{
+    return new ForestBoundaryReader(forestPath);
+});
 
 var app = builder.Build();
+
+// Initialize database schema if using Postgres
+if (dbType.ToLower() == "postgres")
+{
+    using var scope = app.Services.CreateScope();
+    var initializer = scope.ServiceProvider.GetRequiredService<PostgresDatabaseInitializer>();
+    await initializer.InitializeSchemaAsync();
+    Console.WriteLine("PostgreSQL schema initialized.");
+}
 
 // Simple middleware setup
 app.UseStaticFiles();
@@ -59,352 +120,7 @@ app.UseRouting();
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
-// ====== API Endpoints (Optimized for Performance) ======
-
-// Basic health check
-app.MapGet("/api/test", () => Results.Json(new { status = "OK", time = DateTime.Now }));
-
-// Forest boundary data
-app.MapGet("/api/forest", async () =>
-{
-    try
-    {
-        var forestPath = FindForestFile();
-        if (!File.Exists(forestPath))
-            return Results.NotFound("Forest data not found");
-
-        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
-        {
-            if (feature.Geometry is Polygon polygon)
-            {
-                var geoJsonWriter = new GeoJsonWriter();
-                var geoJsonGeometry = geoJsonWriter.Write(polygon);
-                
-                return Results.Json(new
-                {
-                    type = "FeatureCollection",
-                    features = new[]
-                    {
-                        new
-                        {
-                            type = "Feature",
-                            properties = new { name = "RiverHead Forest" },
-                            geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
-                        }
-                    }
-                });
-            }
-        }
-        
-        return Results.NotFound("No forest data found");
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Error: {ex.Message}");
-    }
-});
-
-// Forest bounds for map centering
-app.MapGet("/api/forest-bounds", async () =>
-{
-    try
-    {
-        var forestPath = FindForestFile();
-        if (!File.Exists(forestPath))
-            return Results.NotFound();
-
-        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
-        {
-            if (feature.Geometry is Polygon polygon)
-            {
-                var envelope = polygon.EnvelopeInternal;
-                var centroid = polygon.Centroid;
-                
-                return Results.Json(new
-                {
-                    center = new { lat = centroid.Y, lng = centroid.X },
-                    bounds = new
-                    {
-                        minLat = envelope.MinY, maxLat = envelope.MaxY,
-                        minLng = envelope.MinX, maxLng = envelope.MaxX
-                    }
-                });
-            }
-        }
-        
-        return Results.NotFound();
-    }
-    catch
-    {
-        return Results.NotFound();
-    }
-});
-
-// OPTIMIZED: Latest rover measurement points (limited for performance)
-app.MapGet("/api/rover-data", async (IRoverDataReader reader, int? limit = 100) =>
-{
-    try
-    {
-        // Get total count for statistics
-        var totalCount = await reader.GetMeasurementCountAsync();
-        
-        // Get limited number of latest measurements for performance
-        var measurements = await reader.GetAllMeasurementsAsync();
-        var limitedMeasurements = measurements
-            .OrderByDescending(m => m.Sequence)
-            .Take(limit ?? 100)
-            .OrderBy(m => m.Sequence) // Re-order chronologically
-            .ToList();
-        
-        var features = limitedMeasurements.Select(m => new
-        {
-            type = "Feature",
-            properties = new
-            {
-                sequence = m.Sequence,
-                windDirection = m.WindDirectionDeg,
-                windSpeed = m.WindSpeedMps,
-                time = m.RecordedAt.ToString("HH:mm:ss")
-            },
-            geometry = new
-            {
-                type = "Point",
-                coordinates = new[] { m.Longitude, m.Latitude }
-            }
-        });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features,
-            metadata = new { 
-                totalCount, 
-                shownCount = limitedMeasurements.Count,
-                isLimited = totalCount > (limit ?? 100)
-            }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// NEW: Rover trail as a single LineString for better performance with many points
-// If 'after' timestamp is provided, only returns points after that time
-app.MapGet("/api/rover-trail", async (IRoverDataReader reader, string? after = null) =>
-{
-    try
-    {
-        var measurements = await reader.GetAllMeasurementsAsync();
-        
-        if (!measurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        // Filter by timestamp if 'after' parameter is provided
-        var filteredMeasurements = measurements.OrderBy(m => m.Sequence);
-        
-        if (!string.IsNullOrEmpty(after) && DateTime.TryParse(after, out var afterTime))
-        {
-            filteredMeasurements = filteredMeasurements.Where(m => m.RecordedAt > afterTime).OrderBy(m => m.Sequence);
-        }
-        
-        var limitedMeasurements = filteredMeasurements.ToList();
-        
-        if (!limitedMeasurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        // Create a LineString from the coordinates
-        var coordinates = limitedMeasurements
-            .Select(m => new[] { m.Longitude, m.Latitude })
-            .ToArray();
-        
-        var lineFeature = new
-        {
-            type = "Feature",
-            properties = new
-            {
-                name = "Rover Trail",
-                pointCount = limitedMeasurements.Count,
-                totalPoints = measurements.Count(),
-                startTime = limitedMeasurements.First().RecordedAt.ToString("o"),
-                endTime = limitedMeasurements.Last().RecordedAt.ToString("o")
-            },
-            geometry = new
-            {
-                type = "LineString",
-                coordinates
-            }
-        };
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new[] { lineFeature }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// OPTIMIZED: Rover statistics for info display
-app.MapGet("/api/rover-stats", async (IRoverDataReader reader) =>
-{
-    try
-    {
-        var totalCount = await reader.GetMeasurementCountAsync();
-        var latest = await reader.GetLatestMeasurementAsync();
-        
-        return Results.Json(new
-        {
-            totalMeasurements = totalCount,
-            latestSequence = latest?.Sequence ?? -1,
-            latestTime = latest?.RecordedAt.ToString("HH:mm:ss"),
-            latestPosition = latest != null ? new { 
-                lat = latest.Latitude, 
-                lng = latest.Longitude,
-                windSpeed = latest.WindSpeedMps,
-                windDirection = latest.WindDirectionDeg
-            } : null
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            error = ex.Message,
-            totalMeasurements = 0
-        });
-    }
-});
-
-// NEW: Sampling API - get evenly distributed points for large datasets
-app.MapGet("/api/rover-sample", async (IRoverDataReader reader, int? sampleSize = 200) =>
-{
-    try
-    {
-        var measurements = await reader.GetAllMeasurementsAsync();
-        
-        if (!measurements.Any())
-            return Results.Json(new { type = "FeatureCollection", features = new object[0] });
-        
-        var orderedMeasurements = measurements.OrderBy(m => m.Sequence).ToList();
-        var totalCount = orderedMeasurements.Count;
-        var requestedSample = sampleSize ?? 200;
-        
-        List<RoverMeasurement> sampledMeasurements;
-        
-        if (totalCount <= requestedSample)
-        {
-            // If we have fewer points than requested, return all
-            sampledMeasurements = orderedMeasurements;
-        }
-        else
-        {
-            // Sample evenly across the dataset
-            sampledMeasurements = new List<RoverMeasurement>();
-            var step = (double)totalCount / requestedSample;
-            
-            for (int i = 0; i < requestedSample; i++)
-            {
-                var index = (int)Math.Round(i * step);
-                if (index >= totalCount) index = totalCount - 1;
-                sampledMeasurements.Add(orderedMeasurements[index]);
-            }
-        }
-        
-        var features = sampledMeasurements.Select(m => new
-        {
-            type = "Feature",
-            properties = new
-            {
-                sequence = m.Sequence,
-                windDirection = m.WindDirectionDeg,
-                windSpeed = m.WindSpeedMps,
-                time = m.RecordedAt.ToString("HH:mm:ss")
-            },
-            geometry = new
-            {
-                type = "Point",
-                coordinates = new[] { m.Longitude, m.Latitude }
-            }
-        });
-        
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features,
-            metadata = new {
-                totalCount,
-                sampleSize = sampledMeasurements.Count,
-                samplingRatio = (double)sampledMeasurements.Count / totalCount
-            }
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { 
-            type = "FeatureCollection", 
-            features = new object[0],
-            error = ex.Message
-        });
-    }
-});
-
-// Combined coverage area (the only scent visualization we need)
-app.MapGet("/api/combined-coverage", (ScentPolygonService scentService) =>
-{
-    try
-    {
-        var unified = scentService.GetUnifiedScentPolygonCached();
-        if (unified == null || !unified.IsValid)
-            return Results.NotFound("No coverage data available");
-
-        var geoJsonWriter = new GeoJsonWriter();
-        var geoJsonGeometry = geoJsonWriter.Write(unified.Polygon);
-
-        return Results.Json(new
-        {
-            type = "FeatureCollection",
-            features = new[]
-            {
-                new
-                {
-                    type = "Feature",
-                    properties = new
-                    {
-                        totalPolygons = unified.PolygonCount,
-                        areaHectares = Math.Round(unified.TotalAreaM2 / 10000.0, 1),
-                        avgWindSpeed = Math.Round(unified.AverageWindSpeedMps, 1)
-                    },
-                    geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
-                }
-            }
-        });
-    }
-    catch
-    {
-        return Results.NotFound();
-    }
-});
-
-// ====== Helper Functions ======
-
 Console.WriteLine("Starting FrontendOpenLayers rover tracker...");
-Console.WriteLine("Performance optimizations enabled for large datasets");
-Console.WriteLine("Individual wind polygons removed to reduce visual clutter");
 Console.WriteLine("Open your browser to see the clean map visualization");
 
 app.Run();

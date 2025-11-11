@@ -93,6 +93,8 @@ public static class ScentPolygonCalculator
         var avgWindSpeed = valid.Average(p => p.WindSpeedMps);
         var windSpeedRange = (valid.Min(p => p.WindSpeedMps), valid.Max(p => p.WindSpeedMps));
         var sessionIds = valid.Select(p => p.SessionId).Distinct().ToList();
+        var roverIds = valid.Select(p => p.RoverId).Distinct().ToList();
+        var roverNames = valid.Select(p => p.RoverName).Distinct().ToList();
         var earliestTime = valid.Min(p => p.RecordedAt);
         var latestTime = valid.Max(p => p.RecordedAt);
 
@@ -115,7 +117,7 @@ public static class ScentPolygonCalculator
         {
             // Fallback: convex hull of the collection (very robust)
             finalPolygon = collection.ConvexHull() as Polygon
-                ?? geometryFactory.CreatePolygon();
+           ?? geometryFactory.CreatePolygon();
         }
         finalPolygon.SRID = 4326;
 
@@ -133,7 +135,71 @@ public static class ScentPolygonCalculator
             LatestMeasurement = latestTime,
             AverageWindSpeedMps = avgWindSpeed,
             WindSpeedRange = windSpeedRange,
-            SessionIds = sessionIds
+            SessionIds = sessionIds,
+            RoverIds = roverIds,
+            RoverNames = roverNames
+        };
+    }
+
+    /// <summary>
+    /// Creates a unified polygon from multiple rover-specific unified polygons (combines all rovers)
+    /// </summary>
+    public static UnifiedScentPolygon CreateUnifiedFromRoverPolygons(
+        List<RoverUnifiedPolygon> roverPolygons,
+        GeometryFactory? geometryFactory = null)
+    {
+        if (!roverPolygons.Any())
+            throw new ArgumentException("Cannot create unified polygon from empty rover polygon list", nameof(roverPolygons));
+
+        geometryFactory ??= DefaultGeometryFactory;
+
+        // Keep only valid polygons
+        var valid = roverPolygons.Where(p => p.IsValid).ToList();
+        if (!valid.Any())
+            throw new InvalidOperationException("No valid rover polygons found to create unified polygon");
+
+        // Combine all rover polygons into one
+        var geoms = valid.Select(v => (Geometry)v.UnifiedPolygon).ToList();
+        var collection = geometryFactory.BuildGeometry(geoms);
+        var unioned = collection.Union();
+
+        // Normalize to a single Polygon
+        Polygon finalPolygon;
+        if (unioned is Polygon poly)
+        {
+            finalPolygon = poly;
+        }
+        else if (unioned is MultiPolygon mp)
+        {
+            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
+        }
+        else
+        {
+            finalPolygon = collection.ConvexHull() as Polygon ?? geometryFactory.CreatePolygon();
+        }
+        finalPolygon.SRID = 4326;
+
+        // Calculate total stats
+        var totalPolygonCount = valid.Sum(p => p.PolygonCount);
+        var individualAreasSum = valid.Sum(p => p.TotalAreaM2);
+        var avgLat = valid.Average(p => p.AverageLatitude);
+        var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
+        var earliestTime = valid.Min(p => p.EarliestMeasurement);
+        var latestTime = valid.Max(p => p.LatestMeasurement);
+
+        return new UnifiedScentPolygon
+        {
+            Polygon = finalPolygon,
+            PolygonCount = totalPolygonCount,
+            TotalAreaM2 = totalAreaM2,
+            IndividualAreasSum = individualAreasSum,
+            EarliestMeasurement = earliestTime,
+            LatestMeasurement = latestTime,
+            AverageWindSpeedMps = 0, // Not applicable when combining rover polygons
+            WindSpeedRange = (0, 0),  // Not applicable when combining rover polygons
+            SessionIds = new List<Guid>(), // Could be extracted but not critical
+            RoverIds = valid.Select(p => p.RoverId).ToList(),
+            RoverNames = valid.Select(p => p.RoverName).ToList()
         };
     }
 
@@ -164,10 +230,10 @@ public static class ScentPolygonCalculator
     /// </summary>
     public static double CalculateFanAngle(double windSpeedMps)
     {
-        if (windSpeedMps < 1.0) return 30.0 * Math.PI / 180.0;      // ±30°
-        if (windSpeedMps < 3.0) return (30.0 - (windSpeedMps - 1.0) * 7.5) * Math.PI / 180.0; // ±15–30°
-        if (windSpeedMps < 6.0) return (15.0 - (windSpeedMps - 3.0) * 2.0) * Math.PI / 180.0; // ±9–15°
-        return Math.Max(5.0, 9.0 - (windSpeedMps - 6.0) * 0.5) * Math.PI / 180.0;              // ±5–9°
+        if (windSpeedMps < 1.0) return 30.0 * Math.PI / 180.0;      // ï¿½30ï¿½
+        if (windSpeedMps < 3.0) return (30.0 - (windSpeedMps - 1.0) * 7.5) * Math.PI / 180.0; // ï¿½15ï¿½30ï¿½
+        if (windSpeedMps < 6.0) return (15.0 - (windSpeedMps - 3.0) * 2.0) * Math.PI / 180.0; // ï¿½9ï¿½15ï¿½
+        return Math.Max(5.0, 9.0 - (windSpeedMps - 6.0) * 0.5) * Math.PI / 180.0;              // ï¿½5ï¿½9ï¿½
     }
 
     /// <summary>
@@ -194,7 +260,7 @@ public static class ScentPolygonCalculator
         return
             $"UNIFIED SCENT POLYGON:\n" +
             $"  Polygons: {unifiedPolygon.PolygonCount}\n" +
-            $"  Area: {unifiedPolygon.TotalAreaM2:F0} m² ({unifiedPolygon.TotalAreaM2 / 10000:F2} ha)\n" +
+            $"  Area: {unifiedPolygon.TotalAreaM2:F0} mï¿½ ({unifiedPolygon.TotalAreaM2 / 10000:F2} ha)\n" +
             $"  Efficiency: {efficiency:F1}%\n" +
             $"  Duration: {duration.TotalMinutes:F1} minutes\n" +
             $"  Avg wind: {unifiedPolygon.AverageWindSpeedMps:F1} m/s\n" +

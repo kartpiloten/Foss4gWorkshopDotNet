@@ -1,0 +1,99 @@
+@using NetTopologySuite.Geometries
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@Id" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1; background: #dcdcdc;">
+    @if (!_initialized)
+    {
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; font-size: 1.5rem;">
+            Initializing map...
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = "map";
+    
+    private bool _initialized = false;
+    private IJSObjectReference? _module;
+    private Polygon? _coverage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                Console.WriteLine($"ScentMap: OnAfterRenderAsync called for map '{Id}'");
+                Console.WriteLine($"ScentMap: Importing module for map '{Id}'...");
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/scent-map.js");
+                Console.WriteLine($"ScentMap: Module imported, calling initMap('{Id}')...");
+                await _module.InvokeVoidAsync("initMap", Id);
+                Console.WriteLine($"ScentMap: initMap('{Id}') complete");
+                _initialized = true;
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ScentMap: Error initializing map: {ex.Message}");
+                Console.WriteLine($"ScentMap: Stack trace: {ex.StackTrace}");
+            }
+        }
+    }
+
+    public async Task UpdateRoverTrailAsync(Guid roverId, string roverName, LineString trail)
+    {
+        if (_module == null || trail == null) return;
+        
+        var floatArray = trail.Coordinates.ToFloatArray();
+        await _module.InvokeVoidAsync("updateRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+    }
+
+    public async Task UpdateCoverageAsync(Polygon coverage)
+    {
+        if (_module == null || coverage == null) return;
+        
+        _coverage = coverage;
+        var floatArray = coverage.ExteriorRing.Coordinates.ToFloatArray();
+        await _module.InvokeVoidAsync("updateCoverage", Id, floatArray);
+    }
+
+    public async Task UpdateForestBoundaryAsync(Polygon forestBoundary)
+    {
+        if (_module == null || forestBoundary == null) return;
+        
+        var floatArray = forestBoundary.ExteriorRing.Coordinates.ToFloatArray();
+        await _module.InvokeVoidAsync("updateForestBoundary", Id, floatArray);
+    }
+
+    public async Task UpdateRoverPositionAsync(Guid roverId, string roverName, Point position, float windSpeed, short windDirection)
+    {
+        if (_module == null || position == null) return;
+        
+        await _module.InvokeVoidAsync("updateRoverPosition", Id, roverId.ToString(), roverName, position.X, position.Y, windSpeed, windDirection);
+    }
+
+    public async Task AppendRoverTrailCoordsAsync(Guid roverId, string roverName, Coordinate[] newCoords)
+    {
+        if (_module == null || newCoords == null || newCoords.Length == 0) return;
+        
+        var floatArray = newCoords.ToFloatArray();
+        await _module.InvokeVoidAsync("appendRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module != null)
+        {
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore disposal errors
+            }
+        }
+    }
+}

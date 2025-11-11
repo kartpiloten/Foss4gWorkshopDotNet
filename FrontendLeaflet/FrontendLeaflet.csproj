@@ -3,16 +3,18 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);ASP0000</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="MapPiloteGeopackageHelper" Version="1.2.2" />
     <PackageReference Include="NetTopologySuite" Version="2.6.0" />
     <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+    <PackageReference Include="Npgsql.DependencyInjection" Version="9.0.4" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ReadRoverDBStubLibrary\ReadRoverDBStubLibrary.csproj" />
     <ProjectReference Include="..\ScentPolygonLibrary\ScentPolygonLibrary.csproj" />
+    <ProjectReference Include="..\RoverData.Repository\RoverData.Repository.csproj" />
   </ItemGroup>
 </Project>

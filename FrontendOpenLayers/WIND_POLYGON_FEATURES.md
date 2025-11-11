@@ -71,7 +71,7 @@ roverTrailFeature.getGeometry().setCoordinates(roverTrailCoords);
 - **Permanent Labels**: Wind speed and direction always visible on current position
 - **Vector Rendering**: Efficient rendering of complex geometries
 - **Coordinate Projection**: Proper handling of geographic projections
-- **Coverage Metrics Panel (optional)**: Show areas for Unified (scent), Forest, and Intersection in m²
+- **Coverage Metrics Panel (optional)**: Show areas for Unified (scent), Forest, and Intersection in mï¿½
 
 ## Technical Implementation
 
@@ -84,16 +84,15 @@ roverTrailFeature.getGeometry().setCoordinates(roverTrailCoords);
 
 ### API Endpoints
 1. `/api/forest` - Forest boundary polygon
-2. `/api/forest-bounds` - Map centering coordinates
 3. `/api/rover-trail` - Historical rover path as LineString
 4. `/api/rover-stats` - Latest rover position and statistics
 5. `/api/combined-coverage` - Unified scent detection polygon
 
 ## Coverage Metrics (Areas and Intersection)
 The backend tester now logs coverage sizes to the console whenever the unified scent polygon changes:
-- Unified (scent) area in m²
-- RiverHead forest area in m²
-- Intersection (Unified ? Forest) area in m²
+- Unified (scent) area in mï¿½
+- RiverHead forest area in mï¿½
+- Intersection (Unified ? Forest) area in mï¿½
 
 You can optionally display the same metrics in the OpenLayers frontend.
 
@@ -106,7 +105,7 @@ You can optionally display the same metrics in the OpenLayers frontend.
 - In `wwwroot/js/openlayersInit.js`, after you load both the forest and the combined coverage GeoJSON features:
 ```javascript
 // Assume you have GeoJSON Feature objects for forestFeature and coverageFeature
-// Areas in m² using Turf
+// Areas in mï¿½ using Turf
 const forestAreaM2 = turf.area(forestFeature);
 const unifiedAreaM2 = turf.area(coverageFeature);
 
@@ -117,16 +116,16 @@ const intersectionAreaM2 = intersection ? turf.area(intersection) : 0;
 // Render to a simple on-map panel
 const el = document.getElementById('coverage-stats');
 if (el) {
-  el.innerText = `Unified: ${unifiedAreaM2.toLocaleString()} m²\n` +
-                 `Forest: ${forestAreaM2.toLocaleString()} m²\n` +
-                 `Intersection: ${intersectionAreaM2.toLocaleString()} m²`;
+  el.innerText = `Unified: ${unifiedAreaM2.toLocaleString()} mï¿½\n` +
+                 `Forest: ${forestAreaM2.toLocaleString()} mï¿½\n` +
+                 `Intersection: ${intersectionAreaM2.toLocaleString()} mï¿½`;
 }
 ```
 
 - Add a small panel to `Pages/Index.razor` (or a component) to display the values:
 ```html
 <div id="coverage-stats" style="position:absolute; right:12px; bottom:12px; background:#fff; padding:8px 12px; border-radius:6px; box-shadow: 0 2px 6px rgba(0,0,0,.2); font-family: system-ui; font-size: 13px; white-space: pre-line;">
-  Loading coverage metrics…
+  Loading coverage metricsï¿½
 </div>
 ```
 
@@ -145,11 +144,11 @@ Note: Client-side intersection between polygons is easiest with Turf.js. If you 
 ## OpenLayers Advantages
 
 ### Compared to Leaflet
-- • **Better Vector Performance**: More efficient with large datasets
-- • **Built-in Projections**: Automatic coordinate transformation
-- • **Advanced Styling**: Text labels, complex styles, z-index control
-- • **Feature Management**: Better control over feature lifecycle
-- • **GIS-Ready**: Professional-grade mapping capabilities
+- ï¿½ **Better Vector Performance**: More efficient with large datasets
+- ï¿½ **Built-in Projections**: Automatic coordinate transformation
+- ï¿½ **Advanced Styling**: Text labels, complex styles, z-index control
+- ï¿½ **Feature Management**: Better control over feature lifecycle
+- ï¿½ **GIS-Ready**: Professional-grade mapping capabilities
 
 ### Styling Features
 - Stroke styles with custom widths and colors

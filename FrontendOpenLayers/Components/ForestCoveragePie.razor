@@ -1,4 +1,4 @@
-@inject ScentPolygonLibrary.ScentPolygonService ScentService
+@inject ScentPolygonLibrary.ScentPolygonGenerator Generator
 @implements IDisposable
 
 <div class="forest-pie-container">
@@ -36,23 +36,33 @@
     private double _percentage = 0;
     private int _searchedAreaM2 = 0;
     private int _forestAreaM2 = 0;
+    private System.Threading.Timer? _pollTimer;
 
     protected override void OnInitialized()
     {
-        ScentService.ForestCoverageUpdated += OnForestCoverageUpdated;
+        // Poll every 2 seconds for updates
+        _pollTimer = new System.Threading.Timer(async _ => await PollForUpdates(), null, 0, 2000);
     }
 
-    private void OnForestCoverageUpdated(object? sender, ScentPolygonLibrary.ForestCoverageEventArgs e)
+    private async Task PollForUpdates()
     {
-        _searchedAreaM2 = e.SearchedAreaM2;
-        _forestAreaM2 = e.ForestAreaM2;
-        _percentage = e.PercentageSearched;
-        
-        // Clamp percentage to 100 max
-        if (_percentage > 100) _percentage = 100;
-        
-        // Update UI on Blazor's thread
-        InvokeAsync(StateHasChanged);
+        try
+        {
+            var (searchedArea, forestArea) = await Generator.GetForestIntersectionAreasAsync();
+            _searchedAreaM2 = searchedArea;
+            _forestAreaM2 = forestArea;
+            _percentage = forestArea > 0 ? ((double)searchedArea / forestArea) * 100 : 0;
+            
+            // Clamp percentage to 100 max
+            if (_percentage > 100) _percentage = 100;
+            
+            // Update UI on Blazor's thread
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Ignore errors during polling
+        }
     }
 
     private string GetPiePath()
@@ -86,6 +96,6 @@
 
     public void Dispose()
     {
-        ScentService.ForestCoverageUpdated -= OnForestCoverageUpdated;
+        _pollTimer?.Dispose();
     }
 }
