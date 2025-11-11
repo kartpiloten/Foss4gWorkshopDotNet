@@ -97,6 +97,12 @@ builder.Services.AddScoped<ScentPolygonGenerator>(provider =>
     return new ScentPolygonGenerator(repo, cache, config, forestPath);
 });
 
+// Register ForestBoundaryReader as a singleton (forest boundary doesn't change)
+builder.Services.AddSingleton<ForestBoundaryReader>(provider =>
+{
+    return new ForestBoundaryReader(forestPath);
+});
+
 var app = builder.Build();
 
 // Initialize database schema if using Postgres
@@ -114,59 +120,7 @@ app.UseRouting();
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
-// ====== API Endpoints (Optimized for Performance) ======
-
-// Basic health check
-app.MapGet("/api/test", () => Results.Json(new { status = "OK", time = DateTime.Now }));
-
-// Forest boundary data
-app.MapGet("/api/forest", async () =>
-{
-    try
-    {
-        var forestPath = FindForestFile();
-        if (!File.Exists(forestPath))
-            return Results.NotFound("Forest data not found");
-
-        using var geoPackage = await GeoPackage.OpenAsync(forestPath, 4326);
-        var layer = await geoPackage.EnsureLayerAsync("riverheadforest", new Dictionary<string, string>(), 4326);
-        
-        await foreach (var feature in layer.ReadFeaturesAsync(new ReadOptions(IncludeGeometry: true, Limit: 1)))
-        {
-            if (feature.Geometry is Polygon polygon)
-            {
-                var geoJsonWriter = new GeoJsonWriter();
-                var geoJsonGeometry = geoJsonWriter.Write(polygon);
-                
-                return Results.Json(new
-                {
-                    type = "FeatureCollection",
-                    features = new[]
-                    {
-                        new
-                        {
-                            type = "Feature",
-                            properties = new { name = "RiverHead Forest" },
-                            geometry = System.Text.Json.JsonSerializer.Deserialize<object>(geoJsonGeometry)
-                        }
-                    }
-                });
-            }
-        }
-        
-        return Results.NotFound("No forest data found");
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Error: {ex.Message}");
-    }
-});
-
-// ====== Helper Functions ======
-
 Console.WriteLine("Starting FrontendOpenLayers rover tracker...");
-Console.WriteLine("Performance optimizations enabled for large datasets");
-Console.WriteLine("Using OpenLayers for interactive mapping");
 Console.WriteLine("Open your browser to see the clean map visualization");
 
 app.Run();

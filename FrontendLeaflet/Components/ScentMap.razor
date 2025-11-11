@@ -59,6 +59,14 @@
         await _module.InvokeVoidAsync("updateCoverage", Id, floatArray);
     }
 
+    public async Task UpdateForestBoundaryAsync(Polygon forestBoundary)
+    {
+        if (_module == null || forestBoundary == null) return;
+        
+        var floatArray = forestBoundary.ExteriorRing.Coordinates.ToFloatArray();
+        await _module.InvokeVoidAsync("updateForestBoundary", Id, floatArray);
+    }
+
     public async Task UpdateRoverPositionAsync(Guid roverId, string roverName, Point position, float windSpeed, short windDirection)
     {
         if (_module == null || position == null) return;

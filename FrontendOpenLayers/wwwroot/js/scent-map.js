@@ -108,17 +108,6 @@ export function initMap(id) {
 
     maps[id] = { map, layers, features };
 
-    // Load forest boundary once
-    fetch('/api/forest')
-        .then(r => r.json())
-        .then(data => {
-            const features = new ol.format.GeoJSON().readFeatures(data, {
-                featureProjection: 'EPSG:3857'
-            });
-            forestSource.addFeatures(features);
-        })
-        .catch(err => console.error('Failed to load forest:', err));
-
     console.log(`Map initialized: ${id}`);
 }
 
@@ -204,6 +193,25 @@ export function updateCoverage(id, floatArray) {
         });
         mapData.layers.coverage.addFeature(mapData.features.coverage);
     }
+}
+
+export function updateForestBoundary(id, floatArray) {
+    const mapData = maps[id];
+    if (!mapData) return;
+
+    // Convert flat array [lng, lat, lng, lat, ...] to OpenLayers polygon coordinates
+    const coords = [];
+    for (let i = 0; i < floatArray.length; i += 2) {
+        const transformed = ol.proj.fromLonLat([floatArray[i], floatArray[i + 1]]);
+        coords.push(transformed);
+    }
+
+    // Clear existing features and add new one
+    mapData.layers.forest.clear();
+    const forestFeature = new ol.Feature({
+        geometry: new ol.geom.Polygon([coords])
+    });
+    mapData.layers.forest.addFeature(forestFeature);
 }
 
 export function updateRoverPosition(id, roverId, roverName, lng, lat, windSpeed, windDirection) {

@@ -50,20 +50,6 @@ export function initMap(id) {
         rovers: {}  // { roverId: { trail: L.polyline, position: L.marker, name: string, color: string } }
     };
 
-    // Load forest boundary once
-    fetch('/api/forest')
-        .then(r => r.json())
-        .then(data => {
-            layers.forest = L.geoJSON(data, {
-                style: {
-                    color: '#228B22',
-                    weight: 2,
-                    fillOpacity: 0.1
-                }
-            }).addTo(map);
-        })
-        .catch(err => console.error('Failed to load forest:', err));
-
     maps[id] = { map, layers };
     console.log(`Map initialized: ${id}`);
 }
@@ -119,6 +105,26 @@ export function updateCoverage(id, floatArray) {
             color: '#4444FF',
             weight: 2,
             fillOpacity: 0.2
+        }).addTo(mapData.map);
+    }
+}
+
+export function updateForestBoundary(id, floatArray) {
+    const mapData = maps[id];
+    if (!mapData) return;
+
+    const coords = [];
+    for (let i = 0; i < floatArray.length; i += 2) {
+        coords.push([floatArray[i + 1], floatArray[i]]); // [lat, lng]
+    }
+
+    if (mapData.layers.forest) {
+        mapData.layers.forest.setLatLngs([coords]);
+    } else {
+        mapData.layers.forest = L.polygon([coords], {
+            color: '#228B22',
+            weight: 2,
+            fillOpacity: 0.1
         }).addTo(mapData.map);
     }
 }

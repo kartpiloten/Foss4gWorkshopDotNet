@@ -4,6 +4,7 @@
 @using ScentPolygonLibrary
 @using RoverData.Repository
 @inject IServiceProvider ServiceProvider
+@inject ForestBoundaryReader ForestBoundaryReader
 
 <ScentMap @ref="_map" />
 
@@ -60,6 +61,14 @@
         Console.WriteLine("Index: LoadInitialDataAsync starting...");
         try
         {
+            // Load forest boundary first
+            var forestBoundary = await ForestBoundaryReader.GetBoundaryPolygonAsync();
+            if (forestBoundary != null && _map != null)
+            {
+                await _map.UpdateForestBoundaryAsync(forestBoundary);
+                Console.WriteLine("Index: Forest boundary loaded");
+            }
+
             using var scope = ServiceProvider.CreateScope();
             var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
             var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();      
