@@ -89,43 +89,58 @@ export function updateRoverTrail(id, roverId, roverName, floatArray) {
     }
 }
 
-export function updateCoverage(id, floatArray) {
+
+
+export function updateCoverageGeoJson(id, geoJsonString) {
     const mapData = maps[id];
     if (!mapData) return;
 
-    const coords = [];
-    for (let i = 0; i < floatArray.length; i += 2) {
-        coords.push([floatArray[i + 1], floatArray[i]]); // [lat, lng]
-    }
+    try {
+        const geo = JSON.parse(geoJsonString);
 
-    if (mapData.layers.coverage) {
-        mapData.layers.coverage.setLatLngs([coords]);
-    } else {
-        mapData.layers.coverage = L.polygon([coords], {
-            color: '#4444FF',
-            weight: 2,
-            fillOpacity: 0.2
+        // Remove previous coverage layer
+        if (mapData.layers.coverage) {
+            mapData.map.removeLayer(mapData.layers.coverage);
+            mapData.layers.coverage = null;
+        }
+
+        mapData.layers.coverage = L.geoJSON(geo, {
+            style: {
+                color: '#4444FF',
+                weight: 2,
+                fillOpacity: 0.2
+            }
         }).addTo(mapData.map);
+    }
+    catch (e) {
+        console.error('updateCoverageGeoJson error', e);
     }
 }
 
-export function updateForestBoundary(id, floatArray) {
+
+
+export function updateForestBoundaryGeoJson(id, geoJsonString) {
     const mapData = maps[id];
     if (!mapData) return;
 
-    const coords = [];
-    for (let i = 0; i < floatArray.length; i += 2) {
-        coords.push([floatArray[i + 1], floatArray[i]]); // [lat, lng]
-    }
+    try {
+        const geo = JSON.parse(geoJsonString);
 
-    if (mapData.layers.forest) {
-        mapData.layers.forest.setLatLngs([coords]);
-    } else {
-        mapData.layers.forest = L.polygon([coords], {
-            color: '#228B22',
-            weight: 2,
-            fillOpacity: 0.1
+        if (mapData.layers.forest) {
+            mapData.map.removeLayer(mapData.layers.forest);
+            mapData.layers.forest = null;
+        }
+
+        mapData.layers.forest = L.geoJSON(geo, {
+            style: {
+                color: '#228B22',
+                weight: 2,
+                fillOpacity: 0.1
+            }
         }).addTo(mapData.map);
+    }
+    catch (e) {
+        console.error('updateForestBoundaryGeoJson error', e);
     }
 }
 

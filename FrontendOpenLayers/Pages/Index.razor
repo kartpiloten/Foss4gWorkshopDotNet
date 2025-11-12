@@ -116,7 +116,7 @@
             Console.WriteLine($"Index: Coverage polygon null? {coverage?.Polygon == null}");
             if (coverage?.Polygon != null && _map != null)
             {
-                Console.WriteLine($"Index: Calling UpdateCoverageAsync with {coverage.Polygon.Coordinates.Length} coords");
+                Console.WriteLine($"Index: Calling UpdateCoverageAsync with geometry type {coverage.Polygon.GeometryType}");
                 await _map.UpdateCoverageAsync(coverage.Polygon);
                 Console.WriteLine("Index: UpdateCoverageAsync completed");
             }

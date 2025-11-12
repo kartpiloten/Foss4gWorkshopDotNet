@@ -23,6 +23,21 @@
         "sourceFileMap": {
             "/Views": "${workspaceFolder}/FrontendLeaflet/Views"
         }
+    },     {
+        "name": ".NET Core Launch (RoverSimulator)",
+        "type": "coreclr",
+        "request": "launch",
+        "preLaunchTask": "build",
+        "program": "${workspaceFolder}/RoverSimulator/bin/Debug/net9.0/RoverSimulator",
+        "args": [],
+        "cwd": "${workspaceFolder}/RoverSimulator",
+        "stopAtEntry": false,
+        "serverReadyAction": {
+            "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+        },
+        "env": {
+            "ASPNETCORE_ENVIRONMENT": "Development"
+        }
     }
     ]
 }

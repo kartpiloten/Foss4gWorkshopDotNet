@@ -172,46 +172,43 @@ export function updateRoverTrail(id, roverId, roverName, floatArray) {
     }
 }
 
-export function updateCoverage(id, floatArray) {
+
+
+export function updateCoverageGeoJson(id, geoJsonString) {
     const mapData = maps[id];
     if (!mapData) return;
 
-    // Convert flat array [lng, lat, lng, lat, ...] to OpenLayers polygon coordinates
-    const coords = [];
-    for (let i = 0; i < floatArray.length; i += 2) {
-        const transformed = ol.proj.fromLonLat([floatArray[i], floatArray[i + 1]]);
-        coords.push(transformed);
-    }
+    try {
+        const format = new ol.format.GeoJSON();
+        const geo = JSON.parse(geoJsonString);
+        const features = format.readFeatures(geo, { featureProjection: mapData.map.getView().getProjection() });
 
-    if (mapData.features.coverage) {
-        // Update existing feature
-        mapData.features.coverage.getGeometry().setCoordinates([coords]);
-    } else {
-        // Create new feature
-        mapData.features.coverage = new ol.Feature({
-            geometry: new ol.geom.Polygon([coords])
-        });
-        mapData.layers.coverage.addFeature(mapData.features.coverage);
+        // Clear previous coverage features
+        mapData.layers.coverage.clear();
+        features.forEach(f => mapData.layers.coverage.addFeature(f));
+    }
+    catch (e) {
+        console.error('updateCoverageGeoJson error', e);
     }
 }
 
-export function updateForestBoundary(id, floatArray) {
+
+
+export function updateForestBoundaryGeoJson(id, geoJsonString) {
     const mapData = maps[id];
     if (!mapData) return;
 
-    // Convert flat array [lng, lat, lng, lat, ...] to OpenLayers polygon coordinates
-    const coords = [];
-    for (let i = 0; i < floatArray.length; i += 2) {
-        const transformed = ol.proj.fromLonLat([floatArray[i], floatArray[i + 1]]);
-        coords.push(transformed);
-    }
+    try {
+        const format = new ol.format.GeoJSON();
+        const geo = JSON.parse(geoJsonString);
+        const features = format.readFeatures(geo, { featureProjection: mapData.map.getView().getProjection() });
 
-    // Clear existing features and add new one
-    mapData.layers.forest.clear();
-    const forestFeature = new ol.Feature({
-        geometry: new ol.geom.Polygon([coords])
-    });
-    mapData.layers.forest.addFeature(forestFeature);
+        mapData.layers.forest.clear();
+        features.forEach(f => mapData.layers.forest.addFeature(f));
+    }
+    catch (e) {
+        console.error('updateForestBoundaryGeoJson error', e);
+    }
 }
 
 export function updateRoverPosition(id, roverId, roverName, lng, lat, windSpeed, windDirection) {

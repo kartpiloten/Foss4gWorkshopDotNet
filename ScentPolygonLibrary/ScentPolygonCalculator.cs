@@ -103,31 +103,16 @@ public static class ScentPolygonCalculator
         var collection = geometryFactory.BuildGeometry(geoms);
         var unioned = collection.Union();
 
-        // Normalize to a single Polygon for the library contract
-        Polygon finalPolygon;
-        if (unioned is Polygon poly)
-        {
-            finalPolygon = poly;
-        }
-        else if (unioned is MultiPolygon mp)
-        {
-            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
-        }
-        else
-        {
-            // Fallback: convex hull of the collection (very robust)
-            finalPolygon = collection.ConvexHull() as Polygon
-           ?? geometryFactory.CreatePolygon();
-        }
-        finalPolygon.SRID = 4326;
+        // Use the unioned Geometry (may be Polygon, MultiPolygon, etc.)
+        unioned.SRID = 4326;
 
         // Area approximation (degrees to meters) at average latitude
         var avgLat = valid.Average(p => p.Latitude);
-        var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
+        var totalAreaM2 = CalculateScentAreaM2(unioned, avgLat);
 
         return new UnifiedScentPolygon
         {
-            Polygon = finalPolygon,
+            Polygon = unioned,
             PolygonCount = valid.Count,
             TotalAreaM2 = totalAreaM2,
             IndividualAreasSum = individualAreasSum,
@@ -163,33 +148,19 @@ public static class ScentPolygonCalculator
         var collection = geometryFactory.BuildGeometry(geoms);
         var unioned = collection.Union();
 
-        // Normalize to a single Polygon
-        Polygon finalPolygon;
-        if (unioned is Polygon poly)
-        {
-            finalPolygon = poly;
-        }
-        else if (unioned is MultiPolygon mp)
-        {
-            finalPolygon = mp.Geometries.OfType<Polygon>().OrderByDescending(g => g.Area).First();
-        }
-        else
-        {
-            finalPolygon = collection.ConvexHull() as Polygon ?? geometryFactory.CreatePolygon();
-        }
-        finalPolygon.SRID = 4326;
-
+        // Keep unioned Geometry (may be MultiPolygon)
+        unioned.SRID = 4326;
         // Calculate total stats
         var totalPolygonCount = valid.Sum(p => p.PolygonCount);
         var individualAreasSum = valid.Sum(p => p.TotalAreaM2);
         var avgLat = valid.Average(p => p.AverageLatitude);
-        var totalAreaM2 = CalculateScentAreaM2(finalPolygon, avgLat);
+        var totalAreaM2 = CalculateScentAreaM2(unioned, avgLat);
         var earliestTime = valid.Min(p => p.EarliestMeasurement);
         var latestTime = valid.Max(p => p.LatestMeasurement);
 
         return new UnifiedScentPolygon
         {
-            Polygon = finalPolygon,
+            Polygon = unioned,
             PolygonCount = totalPolygonCount,
             TotalAreaM2 = totalAreaM2,
             IndividualAreasSum = individualAreasSum,
@@ -206,11 +177,11 @@ public static class ScentPolygonCalculator
     /// <summary>
     /// Calculates the scent area in square meters for a polygon at the given latitude
     /// </summary>
-    public static double CalculateScentAreaM2(Polygon polygon, double latitude)
+    public static double CalculateScentAreaM2(Geometry geometry, double latitude)
     {
         var metersPerDegLat = 111_320.0;
         var metersPerDegLon = 111_320.0 * Math.Cos(latitude * Math.PI / 180.0);
-        return polygon.Area * metersPerDegLat * metersPerDegLon;
+        return geometry.Area * metersPerDegLat * metersPerDegLon;
     }
 
     /// <summary>
@@ -239,14 +210,27 @@ public static class ScentPolygonCalculator
     /// <summary>
     /// Converts a polygon to a simple text representation for debugging/demo output
     /// </summary>
-    public static string PolygonToText(Polygon polygon)
+    public static string GeometryToText(Geometry geometry)
     {
-        if (!polygon.IsValid) return "INVALID POLYGON";
-        var coords = polygon.ExteriorRing.Coordinates;
-        var shown = Math.Min(coords.Length, 10);
-        var coordStrings = coords.Take(shown).Select(c => $"({c.X:F6},{c.Y:F6})");
-        var suffix = coords.Length > shown ? $" ... and {coords.Length - shown} more points" : string.Empty;
-        return $"POLYGON({string.Join(" ", coordStrings)}{suffix})";
+        if (geometry == null) return "NULL";
+        if (!geometry.IsValid) return "INVALID GEOMETRY";
+
+        if (geometry is Polygon poly)
+        {
+            var coords = poly.ExteriorRing.Coordinates;
+            var shown = Math.Min(coords.Length, 10);
+            var coordStrings = coords.Take(shown).Select(c => $"({c.X:F6},{c.Y:F6})");
+            var suffix = coords.Length > shown ? $" ... and {coords.Length - shown} more points" : string.Empty;
+            return $"POLYGON({string.Join(" ", coordStrings)}{suffix})";
+        }
+
+        if (geometry is MultiPolygon mp)
+        {
+            var parts = mp.Geometries.OfType<Polygon>().ToList();
+            return $"MULTIPOLYGON(parts={parts.Count}, vertices={geometry.NumPoints})";
+        }
+
+        return $"GEOMETRY(type={geometry.GeometryType}, vertices={geometry.NumPoints})";
     }
 
     /// <summary>
@@ -254,7 +238,7 @@ public static class ScentPolygonCalculator
     /// </summary>
     public static string UnifiedPolygonToText(UnifiedScentPolygon unifiedPolygon)
     {
-        var polyText = PolygonToText(unifiedPolygon.Polygon);
+        var polyText = GeometryToText(unifiedPolygon.Polygon);
         var efficiency = unifiedPolygon.CoverageEfficiency * 100;
         var duration = unifiedPolygon.LatestMeasurement - unifiedPolygon.EarliestMeasurement;
         return
