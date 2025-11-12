@@ -1,5 +1,6 @@
 @inject ScentPolygonLibrary.ScentPolygonGenerator Generator
 @implements IDisposable
+@using System.Globalization
 
 <div class="forest-pie-container">
     <svg viewBox="0 0 200 200" class="pie-chart">
@@ -16,7 +17,7 @@
         <circle cx="100" cy="100" r="50" fill="white"/>
         
         <!-- Percentage text -->
-        <text x="100" y="95" text-anchor="middle" class="pie-percentage">@_percentage.ToString("F1")%</text>
+    <text x="100" y="95" text-anchor="middle" class="pie-percentage">@_percentage.ToString("F1", CultureInfo.InvariantCulture)%</text>
         <text x="100" y="115" text-anchor="middle" class="pie-label">Searched</text>
     </svg>
     
@@ -82,7 +83,8 @@
         // Large arc flag if more than 50%
         var largeArc = _percentage > 50 ? 1 : 0;
         
-        return $"M 100,100 L 100,20 A 80,80 0 {largeArc},1 {endX:F2},{endY:F2} Z";
+        return string.Format(CultureInfo.InvariantCulture,
+            "M 100,100 L 100,20 A 80,80 0 {0},1 {1:F2},{2:F2} Z", largeArc, endX, endY);
     }
 
     private string FormatArea(int areaM2)
@@ -91,7 +93,7 @@
             return $"{areaM2} m²";
         
         var hectares = areaM2 / 10000.0;
-        return $"{hectares:F2} ha";
+    return $"{hectares.ToString("F2", CultureInfo.InvariantCulture)} ha";
     }
 
     public void Dispose()
