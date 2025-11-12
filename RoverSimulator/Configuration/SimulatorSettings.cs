@@ -75,7 +75,7 @@ public class RoverSettings
 
 public class StartPositionSettings
 {
-    public bool UseForestCentroid { get; set; } = true; // Use centroid from forest polygon (NTS Point)
+    public bool UseRandomStartPosition { get; set; } = true; // Use centroid from forest polygon (NTS Point)
     public double DefaultLatitude { get; set; } = -36.75;
     public double DefaultLongitude { get; set; } = 174.60;
 }

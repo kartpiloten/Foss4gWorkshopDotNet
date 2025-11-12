@@ -26,7 +26,7 @@ class RoverSimulatorProgram
     // Configuration: load appsettings.json (kept minimal)
     // Handle different working directories (run from solution root or project directory)
     var appSettingsPath = File.Exists("appsettings.json")
-             ? Path.GetFullPath("appsettings.json")
+      ? Path.GetFullPath("appsettings.json")
       : Path.GetFullPath(Path.Combine("RoverSimulator", "appsettings.json"));
 
     if (!File.Exists(appSettingsPath))
@@ -40,9 +40,9 @@ class RoverSimulatorProgram
     }
 
     var configuration = new ConfigurationBuilder()
-             .SetBasePath(Path.GetDirectoryName(appSettingsPath)!)
-           .AddJsonFile(Path.GetFileName(appSettingsPath), optional: false, reloadOnChange: true)
-          .Build();
+      .SetBasePath(Path.GetDirectoryName(appSettingsPath)!)
+      .AddJsonFile(Path.GetFileName(appSettingsPath), optional: false, reloadOnChange: true)
+      .Build();
 
     // Dependency Injection: register typed options and services
     var services = new ServiceCollection();
@@ -50,11 +50,11 @@ class RoverSimulatorProgram
 
     // Use ForestBoundaryReader from RoverData.Repository
     services.AddSingleton<ForestBoundaryReader>(provider =>
-           {
-             var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
-             var geoPackagePath = Path.Combine(GetSolutionDirectory(), settings.Forest.BoundaryFile);
-             return new ForestBoundaryReader(geoPackagePath, settings.Forest.LayerName);
-           });
+    {
+      var settings = provider.GetRequiredService<IOptions<SimulatorSettings>>().Value;
+      var geoPackagePath = Path.Combine(GetSolutionDirectory(), settings.Forest.BoundaryFile);
+      return new ForestBoundaryReader(geoPackagePath, settings.Forest.LayerName);
+    });
 
     var serviceProvider = services.BuildServiceProvider();
 
@@ -70,18 +70,37 @@ class RoverSimulatorProgram
       return;
     }
 
+    // Cancellation: Ctrl+C to stop
+    var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (s, e) =>
+    {
+      e.Cancel = true;
+      cts.Cancel();
+    };
+
+    // Initialize database schema early (if using Postgres) to support session queries
+    if (settings.Database.Type.ToLower() == "postgres")
+    {
+      try
+      {
+        Console.WriteLine("\nInitializing database schema (if needed)...");
+        using var dataSource = new NpgsqlDataSourceBuilder(settings.Database.Postgres.ConnectionString)
+          .UseNetTopologySuite()
+          .Build();
+        var initializer = new PostgresDatabaseInitializer(dataSource);
+        await initializer.InitializeSchemaAsync(cts.Token);
+        Console.WriteLine("Database schema ready.");
+      }
+      catch (Exception ex)
+      {
+        Console.WriteLine($"Warning: Could not initialize database schema: {ex.Message}");
+      }
+    }
+
     // === SESSION SELECTION ===
     Console.WriteLine("\n" + new string('=', 60));
     Console.WriteLine("ROVER SIMULATOR - SESSION SETUP");
     Console.WriteLine(new string('=', 60));
-
-    // Cancellation: Ctrl+C to stop
-    var cts = new CancellationTokenSource();
-    Console.CancelKeyPress += (s, e) =>
-{
-e.Cancel = true;
-cts.Cancel();
-};
 
     string sessionName = await GetSessionNameAsync(settings, args, cts.Token);
 
@@ -150,10 +169,6 @@ cts.Cancel();
         var sessionContext = new ConsoleSessionContext(sessionId, sessionName);
         repository = new PostgresRoverDataRepository(dataSource, sessionContext);
         Console.WriteLine("Using PostgreSQL database");
-        
-        // Initialize schema
-        var initializer = new PostgresDatabaseInitializer(dataSource);
-        await initializer.InitializeSchemaAsync(cts.Token);
       }
       else if (settings.Database.Type.ToLower() == "geopackage")
       {
@@ -203,14 +218,14 @@ cts.Cancel();
     {
       // Use the repository's SessionId provided by InitializeAsync
       await RunSimulationAsync(
-   repository,
-   settings,
-   forestReader,
-   forestPolygon,
-   roverId,
-   roverName,
-   repository.SessionId,
-   cts.Token);
+        repository,
+        settings,
+        forestReader,
+        forestPolygon,
+        roverId,
+        roverName,
+        repository.SessionId,
+        cts.Token);
     }
     catch (OperationCanceledException)
     {
@@ -240,6 +255,13 @@ cts.Cancel();
     }
   }
 
+  private static string GenerateAutoSessionName()
+  {
+    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+    var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
+    return $"auto_{timestamp}_{randomSuffix}";
+  }
+
   private static async Task<string> GetSessionNameAsync(SimulatorSettings settings, string[] args, CancellationToken cancellationToken)
   {
     // Check for --session command-line argument first
@@ -249,9 +271,7 @@ cts.Cancel();
       // Check for special "auto" keyword
       if (sessionFromArgs.Equals("auto", StringComparison.OrdinalIgnoreCase))
       {
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-        var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+        var autoSessionName = GenerateAutoSessionName();
         Console.WriteLine($"Auto-generated session name: {autoSessionName}");
         return autoSessionName;
       }
@@ -264,14 +284,10 @@ cts.Cancel();
     var autoSession = Environment.GetEnvironmentVariable("AUTO_SESSION");
     if (!string.IsNullOrEmpty(autoSession) && autoSession.Equals("true", StringComparison.OrdinalIgnoreCase))
     {
-      // Generate automatic unique session name
-      var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-      var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-      var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+      var autoSessionName = GenerateAutoSessionName();
       Console.WriteLine($"Auto-generated session name: {autoSessionName}");
       return autoSessionName;
     }
-
 
     // List existing sessions (database-type aware)
     var existingSessions = await ListAvailableSessionsAsync(settings, showOutput: true, cancellationToken);
@@ -289,10 +305,7 @@ cts.Cancel();
 
     if (input.Equals("auto", StringComparison.OrdinalIgnoreCase))
     {
-      // Generate automatic unique session name
-      var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-      var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-      var autoSessionName = $"auto_{timestamp}_{randomSuffix}";
+      var autoSessionName = GenerateAutoSessionName();
       Console.WriteLine($"\nAuto-generated session name: {autoSessionName}");
       return autoSessionName;
     }
@@ -303,9 +316,7 @@ cts.Cancel();
 
       if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
       {
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-        newSessionName = $"auto_{timestamp}_{randomSuffix}";
+        newSessionName = GenerateAutoSessionName();
         Console.WriteLine($"Auto-generated session name: {newSessionName}");
         return newSessionName;
       }
@@ -318,9 +329,7 @@ cts.Cancel();
 
         if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
         {
-          var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-          var randomSuffix = Guid.NewGuid().ToString("N").Substring(0, 6);
-          newSessionName = $"auto_{timestamp}_{randomSuffix}";
+          newSessionName = GenerateAutoSessionName();
           Console.WriteLine($"Auto-generated session name: {newSessionName}");
           return newSessionName;
         }
@@ -373,42 +382,39 @@ cts.Cancel();
 
     try
     {
-      // Create a temporary repository instance to query sessions
-      SessionRepository sessionRepository;
-      
       if (settings.Database.Type.ToLower() == "postgres")
       {
         // Create NpgsqlDataSource for temporary query
-        var dataSource = new NpgsqlDataSourceBuilder(settings.Database.Postgres.ConnectionString)
+        using var dataSource = new NpgsqlDataSourceBuilder(settings.Database.Postgres.ConnectionString)
           .UseNetTopologySuite()
           .Build();
         
-        sessionRepository = new SessionRepository(dataSource);
+        var sessionRepository = new SessionRepository(dataSource);
+        
+        // Get sessions with counts from SessionRepository
+        var sessionInfos = await sessionRepository.GetSessionsWithCountsAsync(cancellationToken);
+        
+        sessions.AddRange(sessionInfos.Select(s => s.SessionName));
+
+        if (showOutput)
+        {
+          if (sessionInfos.Count == 0)
+          {
+            Console.WriteLine("No existing sessions found.");
+          }
+          else
+          {
+            Console.WriteLine($"\nExisting sessions ({sessionInfos.Count}):");
+            foreach (var sessionInfo in sessionInfos)
+            {
+              Console.WriteLine($"  - {sessionInfo.SessionName} (Measurements: {sessionInfo.MeasurementCount})");
+            }
+          }
+        }
       }
       else
       {
         throw new NotSupportedException("Session querying for GeoPackage not yet implemented");
-      }
-
-      // Get sessions with counts from SessionRepository
-      var sessionInfos = await sessionRepository.GetSessionsWithCountsAsync(cancellationToken);
-      
-      sessions.AddRange(sessionInfos.Select(s => s.SessionName));
-
-      if (showOutput)
-      {
-        if (sessionInfos.Count == 0)
-        {
-          Console.WriteLine("No existing sessions found.");
-        }
-        else
-        {
-          Console.WriteLine($"\nExisting sessions ({sessionInfos.Count}):");
-          foreach (var sessionInfo in sessionInfos)
-          {
-            Console.WriteLine($"  - {sessionInfo.SessionName} (Measurements: {sessionInfo.MeasurementCount})");
-          }
-        }
       }
     }
     catch (Exception ex)
@@ -436,21 +442,15 @@ cts.Cancel();
   }
 
   private static async Task RunSimulationAsync(
-      RoverData.Repository.IRoverDataRepository repository,
-   SimulatorSettings settings,
-      ForestBoundaryReader forestReader,
-  Polygon? forestPolygon,
-      Guid roverId,
-      string roverName,
-      Guid sessionId,
-      CancellationToken cancellationToken)
+    RoverData.Repository.IRoverDataRepository repository,
+    SimulatorSettings settings,
+    ForestBoundaryReader forestReader,
+    Polygon? forestPolygon,
+    Guid roverId,
+    string roverName,
+    Guid sessionId,
+    CancellationToken cancellationToken)
   {
-    // GeoPackage-only: check file lock before creating/opening
-    if (repository is RoverData.Repository.GeoPackageRoverDataRepository geoRepo)
-    {
-      // File locking is now handled per-operation, no need to check
-    }
-
     // Get forest polygon if not already loaded
     if (forestPolygon == null)
     {
@@ -462,44 +462,43 @@ cts.Cancel();
     {
       var fallbackBounds = settings.Forest.FallbackBounds;
       var coordinates = new[]
-               {
-                new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude),
- new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MinLatitude),
-            new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MaxLatitude),
-     new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MaxLatitude),
-       new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude)
-     };
+      {
+        new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude),
+        new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MinLatitude),
+        new Coordinate(fallbackBounds.MaxLongitude, fallbackBounds.MaxLatitude),
+        new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MaxLatitude),
+        new Coordinate(fallbackBounds.MinLongitude, fallbackBounds.MinLatitude)
+      };
       forestPolygon = new Polygon(new LinearRing(coordinates)) { SRID = 4326 };
     }
 
     // Initial position
     var rng = new Random();
     var envelope = await forestReader.GetBoundingBoxAsync(cancellationToken)
-       ?? forestPolygon.EnvelopeInternal;
+      ?? forestPolygon.EnvelopeInternal;
 
     Point startPoint;
-    if (settings.Rover.StartPosition.UseForestCentroid)
+    if (settings.Rover.StartPosition.UseRandomStartPosition)
     {
-      var centroid = await forestReader.GetCentroidAsync(cancellationToken);
-      startPoint = centroid ?? forestPolygon.Centroid;
+      startPoint = GetRandomPointInPolygon(forestPolygon, rng);
     }
     else
     {
       startPoint = new Point(
-           settings.Rover.StartPosition.DefaultLongitude,
-            settings.Rover.StartPosition.DefaultLatitude)
+        settings.Rover.StartPosition.DefaultLongitude,
+        settings.Rover.StartPosition.DefaultLatitude)
       { SRID = 4326 };
     }
 
     var position = new RoverPosition(
-  initialLat: startPoint.Y,
-initialLon: startPoint.X,
-initialBearing: rng.NextDouble() * 360.0,
-        walkSpeed: settings.Rover.Movement.WalkSpeedMps,
-        minLat: envelope.MinY,
-        maxLat: envelope.MaxY,
-        minLon: envelope.MinX,
-  maxLon: envelope.MaxX
+      initialLat: startPoint.Y,
+      initialLon: startPoint.X,
+      initialBearing: rng.NextDouble() * 360.0,
+      walkSpeed: settings.Rover.Movement.WalkSpeedMps,
+      minLat: envelope.MinY,
+      maxLat: envelope.MaxY,
+      minLon: envelope.MinX,
+      maxLon: envelope.MaxX
     );
 
     Console.WriteLine($"\nStarting rover '{roverName}' at: ({position.Latitude:F6}, {position.Longitude:F6})");
@@ -509,10 +508,10 @@ initialBearing: rng.NextDouble() * 360.0,
     // Initialize environment attributes (wind)
     var windRange = settings.Simulation.Wind.InitialSpeedRange;
     var attributes = new RoverAttributes(
-        initialWindDirection: rng.Next(0, 360),
-         initialWindSpeed: windRange.Min + rng.NextDouble() * (windRange.Max - windRange.Min),
-             maxWindSpeed: settings.Simulation.Wind.MaxSpeedMps
-         );
+      initialWindDirection: rng.Next(0, 360),
+      initialWindSpeed: windRange.Min + rng.NextDouble() * (windRange.Max - windRange.Min),
+      maxWindSpeed: settings.Simulation.Wind.MaxSpeedMps
+    );
 
     // Main loop
     var interval = TimeSpan.FromSeconds(settings.Simulation.IntervalSeconds);
@@ -539,17 +538,17 @@ initialBearing: rng.NextDouble() * 360.0,
 
       // Create and insert measurement with rover name
       var measurement = new RoverData.Repository.RoverMeasurement(
-           roverId,
-       roverName,
-              sessionId,
-             sequenceNumber++,
-             now,
-         position.Latitude,
-           position.Longitude,
-         attributes.GetWindDirectionAsShort(),
-          attributes.GetWindSpeedAsFloat(),
-            position.ToGeometry()
-         );
+        roverId,
+        roverName,
+        sessionId,
+        sequenceNumber++,
+        now,
+        position.Latitude,
+        position.Longitude,
+        attributes.GetWindDirectionAsShort(),
+        attributes.GetWindSpeedAsFloat(),
+        position.ToGeometry()
+      );
 
       try
       {
@@ -563,12 +562,12 @@ initialBearing: rng.NextDouble() * 360.0,
 
       // Progress (every 10 rows)
       ProgressMonitor.ReportProgress(
-       sequenceNumber,
-       sessionId,
-                  position.Latitude,
-              position.Longitude,
-       attributes.FormatWindInfo()
-              );
+        sequenceNumber,
+        sessionId,
+        position.Latitude,
+        position.Longitude,
+        attributes.FormatWindInfo()
+      );
 
       // Fixed-rate loop
       nextTick += interval;
@@ -598,6 +597,28 @@ initialBearing: rng.NextDouble() * 360.0,
   {
     var env = Environment.GetEnvironmentVariable("ROVER_ID");
     return Guid.TryParse(env, out var id) ? id : null;
+  }
+
+  private static Point GetRandomPointInPolygon(Polygon polygon, Random rng, int maxAttempts = 10000)
+  {
+    if (polygon == null) throw new ArgumentNullException(nameof(polygon));
+
+    var env = polygon.EnvelopeInternal;
+    double minX = env.MinX, maxX = env.MaxX;
+    double minY = env.MinY, maxY = env.MaxY;
+
+    for (int i = 0; i < maxAttempts; i++)
+    {
+      double x = minX + rng.NextDouble() * (maxX - minX);
+      double y = minY + rng.NextDouble() * (maxY - minY);
+      var pt = new Point(x, y) { SRID = polygon.SRID };
+
+      if (polygon.Contains(pt))
+        return pt;
+    }
+
+    // Fallback to centroid if sampling fails (rare unless polygon is extremely thin)
+    return polygon.Centroid ?? new Point((minX + maxX) / 2.0, (minY + maxY) / 2.0) { SRID = polygon.SRID };
   }
 
   private static string? GetSessionNameFromArgs(string[] args)
