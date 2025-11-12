@@ -1,0 +1,145 @@
+﻿@page "/counter"
+@rendermode InteractiveServer
+
+<PageTitle>Forest Coverage Pie Chart Tester</PageTitle>
+
+<h1>Forest Coverage Pie Chart Component Tester (Old Version)</h1>
+
+<p style="color: red; font-weight: bold;">⚠️ This page uses the old parameter-based approach which doesn't match the actual component.</p>
+<p>The actual component uses dependency injection. See the Home page for the real component.</p>
+
+<div class="test-container">
+ <div class="input-panel">
+        <h3>Input Parameters (Not Used by Real Component)</h3>
+        
+ <div class="input-group">
+          <label for="searchedArea">Searched Area (m²):</label>
+<input type="number" id="searchedArea" @bind="_searchedInput" @bind:event="oninput" />
+        </div>
+
+        <div class="input-group">
+        <label for="forestArea">Forest Area (m²):</label>
+         <input type="number" id="forestArea" @bind="_forestInput" @bind:event="oninput" />
+        </div>
+
+        <div class="input-group">
+ <label>Percentage:</label>
+   <strong>@_calculatedPercentage.ToString("F2")%</strong>
+        </div>
+
+        <div class="preset-buttons">
+      <h4>Quick Presets:</h4>
+  <button class="btn btn-primary" @onclick="() => SetPreset(0, 100000)">0% (Empty)</button>
+        <button class="btn btn-primary" @onclick="() => SetPreset(25000, 100000)">25%</button>
+          <button class="btn btn-primary" @onclick="() => SetPreset(50000, 100000)">50%</button>
+      <button class="btn btn-primary" @onclick="() => SetPreset(75000, 100000)">75%</button>
+         <button class="btn btn-primary" @onclick="() => SetPreset(100000, 100000)">100% (Full)</button>
+       <button class="btn btn-secondary" @onclick="() => SetPreset(120000, 100000)">120% (Over)</button>
+      </div>
+    </div>
+
+    <div class="component-display">
+      <h3>Component Render:</h3>
+      <p style="color: red;">❌ This won't work - component doesn't accept parameters</p>
+   <!-- <ForestCoveragePie SearchedAreaM2="_searchedInput" ForestAreaM2="_forestInput" /> -->
+    </div>
+</div>
+
+<div class="info-section">
+ <h3>Note:</h3>
+  <p>This test page was created during development but doesn't match the actual component API.</p>
+    <p>Go to <a href="/">Home</a> to see the real component.</p>
+</div>
+
+<style>
+    .test-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+   gap: 30px;
+        margin: 30px 0;
+    }
+
+    .input-panel, .component-display {
+        padding: 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .input-group {
+    margin-bottom: 20px;
+    }
+
+    .input-group label {
+        display: block;
+        margin-bottom: 5px;
+  font-weight: 500;
+        color: #555;
+    }
+
+    .input-group input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 16px;
+    }
+
+    .preset-buttons {
+        margin-top: 30px;
+    }
+
+    .preset-buttons h4 {
+ margin-bottom: 10px;
+color: #666;
+    }
+
+    .preset-buttons button {
+        margin: 5px;
+        padding: 8px 16px;
+    }
+
+    .component-display {
+        display: flex;
+ flex-direction: column;
+        align-items: center;
+      justify-content: center;
+    }
+
+    .info-section {
+        margin-top: 30px;
+     padding: 20px;
+        background: #f8f9fa;
+        border-left: 4px solid #4CAF50;
+border-radius: 4px;
+    }
+
+    .info-section ul {
+        margin: 10px 0;
+        padding-left: 20px;
+    }
+
+    .info-section li {
+        margin: 8px 0;
+        line-height: 1.6;
+    }
+
+    @@media (max-width: 768px) {
+        .test-container {
+      grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    private int _searchedInput = 35000;
+    private int _forestInput = 100000;
+    private double _calculatedPercentage => _forestInput > 0 ? ((double)_searchedInput / _forestInput) * 100 : 0;
+
+  private void SetPreset(int searched, int forest)
+ {
+        _searchedInput = searched;
+        _forestInput = forest;
+   StateHasChanged();
+    }
+}

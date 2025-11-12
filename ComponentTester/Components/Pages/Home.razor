@@ -1,0 +1,88 @@
+@page "/"
+@rendermode InteractiveServer
+@using ComponentTester.Components.Shared
+
+<PageTitle>Component Tester</PageTitle>
+
+<div style="padding: 40px; max-width: 1200px; margin: 0 auto;">
+    <h1 style="margin-bottom: 30px; color: #2d5a27;">Forest Coverage Pie Component Test</h1>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
+  <!-- Input Panel -->
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+       <h2 style="font-size: 1.3rem; margin-bottom: 15px;">Manual Mode (Test with Parameters)</h2>
+         
+       <div style="margin-bottom: 20px;">
+   <label style="display: block; margin-bottom: 5px; font-weight: 500;">Searched Area (m²):</label>
+ <input type="number" @bind="_searchedInput" @bind:event="oninput" 
+ style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;" />
+    </div>
+
+  <div style="margin-bottom: 20px;">
+     <label style="display: block; margin-bottom: 5px; font-weight: 500;">Forest Area (m²):</label>
+    <input type="number" @bind="_forestInput" @bind:event="oninput" 
+    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px;" />
+       </div>
+
+          <div style="margin-bottom: 20px;">
+  <label style="display: block; margin-bottom: 5px; font-weight: 500;">Calculated Percentage:</label>
+  <strong style="font-size: 1.5rem; color: #4CAF50;">@_calculatedPercentage.ToString("F2")%</strong>
+          </div>
+
+         <div style="margin-top: 30px;">
+    <h4 style="margin-bottom: 10px; color: #666;">Quick Presets:</h4>
+     <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+         <button class="btn btn-primary" @onclick="() => SetPreset(0, 100000)" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">0%</button>
+  <button class="btn btn-primary" @onclick="() => SetPreset(25000, 100000)" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">25%</button>
+    <button class="btn btn-primary" @onclick="() => SetPreset(35000, 100000)" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">35%</button>
+  <button class="btn btn-primary" @onclick="() => SetPreset(50000, 100000)" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">50%</button>
+      <button class="btn btn-primary" @onclick="() => SetPreset(75000, 100000)" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">75%</button>
+          <button class="btn btn-success" @onclick="() => SetPreset(100000, 100000)" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">100%</button>
+  <button class="btn btn-warning" @onclick="() => SetPreset(120000, 100000)" style="padding: 8px 16px; background: #ffc107; color: black; border: none; border-radius: 4px; cursor: pointer;">120%</button>
+      </div>
+         </div>
+        </div>
+
+      <!-- Component Display -->
+    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+       <h2 style="font-size: 1.3rem; margin-bottom: 15px;">Component Render:</h2>
+       <p style="margin-bottom: 10px; color: #666;">Current values: @_searchedInput m² / @_forestInput m² = @_calculatedPercentage.ToString("F1")%</p>
+   <ForestCoveragePie SearchedAreaM2="@_searchedInput" ForestAreaM2="@_forestInput" @key="@($"{_searchedInput}_{_forestInput}")" />
+        </div>
+    </div>
+    
+    <!-- Auto Mode Section -->
+    <div style="background: #e9ecef; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+  <h3 style="font-size: 1.1rem; margin-bottom: 15px;">Auto Mode (Without Parameters):</h3>
+        <div style="background: white; padding: 20px; border-radius: 8px; display: inline-block;">
+     <ForestCoveragePie />
+        </div>
+    <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">
+    ?? This instance polls the ScentPolygonGenerator every 2 seconds (using stub repository that returns 0)
+        </p>
+    </div>
+
+    <!-- Info Section -->
+    <div style="background: #d4edda; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+   <h3 style="font-size: 1.1rem; margin-bottom: 10px; color: #155724;">Component Features:</h3>
+        <ul style="margin: 5px 0; padding-left: 20px;">
+   <li style="margin: 5px 0;">? <strong>Manual Mode:</strong> Set SearchedAreaM2 and ForestAreaM2 parameters for testing</li>
+ <li style="margin: 5px 0;">? <strong>Auto Mode:</strong> Leave parameters empty to use dependency injection and automatic polling</li>
+          <li style="margin: 5px 0;">? <strong>Real-time Updates:</strong> Auto mode polls ScentPolygonGenerator every 2 seconds</li>
+   <li style="margin: 5px 0;">? <strong>SVG Rendering:</strong> Path-based pie chart for cross-browser compatibility</li>
+       <li style="margin: 5px 0;">? <strong>Responsive:</strong> Adapts to different screen sizes</li>
+        </ul>
+    </div>
+</div>
+
+@code {
+  private int _searchedInput = 35000;
+    private int _forestInput = 100000;
+    private double _calculatedPercentage => _forestInput > 0 ? ((double)_searchedInput / _forestInput) * 100 : 0;
+
+    private void SetPreset(int searched, int forest)
+    {
+  _searchedInput = searched;
+      _forestInput = forest;
+  }
+}
