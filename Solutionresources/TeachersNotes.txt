@@ -79,9 +79,9 @@ Mål: Utöka den befintliga Blazor-komponenten ForestCoveragePie.razor med:
 
 Fil att ändra: FrontendLeaflet/Components/ForestCoveragePie.razor
 
-Steg 1: Injicera IRoverDataReader i komponenten
-Lägg till längst upp:
-@inject ReadRoverDBStubLibrary.IRoverDataReader RoverReader
+Steg 1: Injicera IRoverDataRepository i komponenten
+Lägg till längst upp (efter @inject ScentPolygonLibrary.ScentPolygonGenerator Generator):
+@inject RoverData.Repository.IRoverDataRepository RoverRepository
 
 Steg 2: Lägg till nya privata fält i @code-sektionen:
     private double _totalDistanceKm = 0;
@@ -92,7 +92,7 @@ Steg 2: Lägg till nya privata fält i @code-sektionen:
 Steg 3: Skapa en metod för Haversine-beräkning:
     private double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
     {
-        const double R = 6371; // Jordens radie i km
+        const double R = 6371; // Jordens radie i km (Earth's radius)
         var dLat = (lat2 - lat1) * Math.PI / 180.0;
         var dLon = (lon2 - lon1) * Math.PI / 180.0;
         
@@ -109,24 +109,38 @@ Steg 4: Skapa en async metod för att uppdatera rover-statistik:
     {
         try
         {
-            var measurements = await RoverReader.GetAllMeasurementsAsync();
-            var ordered = measurements.OrderBy(m => m.Sequence).ToList();
+            // Use IRoverDataRepository (LINQ: GetAllAsync)
+            var measurements = await RoverRepository.GetAllAsync();
             
-            if (!ordered.Any()) return;
+            if (!measurements.Any()) return;
             
-            // Beräkna total distans
+            // Group measurements by rover (LINQ: GroupBy)
+            var roverGroups = measurements.GroupBy(m => new { m.RoverId, m.RoverName });
+            
             _totalDistanceKm = 0;
-            for (int i = 1; i < ordered.Count; i++)
+            var allWindSpeeds = new List<float>();
+            
+            // Calculate distance and wind stats for each rover separately
+            foreach (var roverGroup in roverGroups)
             {
-                _totalDistanceKm += CalculateHaversineDistance(
-                    ordered[i-1].Latitude, ordered[i-1].Longitude,
-                    ordered[i].Latitude, ordered[i].Longitude);
+                var roverPoints = roverGroup.OrderBy(m => m.Sequence).ToList();
+                
+                // Beräkna distans per rover
+                for (int i = 1; i < roverPoints.Count; i++)
+                {
+                    _totalDistanceKm += CalculateHaversineDistance(
+                        roverPoints[i-1].Latitude, roverPoints[i-1].Longitude,
+                        roverPoints[i].Latitude, roverPoints[i].Longitude);
+                }
+                
+                // Samla vinddata från alla rovers
+                allWindSpeeds.AddRange(roverGroup.Select(m => m.WindSpeedMps));
             }
             
-            // Beräkna vindstatistik
-            _avgWindSpeed = ordered.Average(m => m.WindSpeedMps);
-            _minWindSpeed = ordered.Min(m => m.WindSpeedMps);
-            _maxWindSpeed = ordered.Max(m => m.WindSpeedMps);
+            // Beräkna vindstatistik från alla mätpunkter
+            _avgWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Average() : 0;
+            _minWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Min() : 0;
+            _maxWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Max() : 0;
         }
         catch (Exception ex)
         {
@@ -134,19 +148,29 @@ Steg 4: Skapa en async metod för att uppdatera rover-statistik:
         }
     }
 
-Steg 5: Anropa UpdateRoverStatistics från OnForestCoverageUpdated:
-    private void OnForestCoverageUpdated(object? sender, ScentPolygonLibrary.ForestCoverageEventArgs e)
+Steg 5: Uppdatera PollForUpdates-metoden för att även uppdatera rover-statistik:
+    private async Task PollForUpdates()
     {
-        _searchedAreaM2 = e.SearchedAreaM2;
-        _forestAreaM2 = e.ForestAreaM2;
-        _percentage = e.PercentageSearched;
-        
-        if (_percentage > 100) _percentage = 100;
-        
-        // Uppdatera även rover-statistik
-        _ = UpdateRoverStatistics(); // Fire-and-forget
-        
-        InvokeAsync(StateHasChanged);
+        try
+        {
+            var (searchedArea, forestArea) = await Generator.GetForestIntersectionAreasAsync();
+            _searchedAreaM2 = searchedArea;
+            _forestAreaM2 = forestArea;
+            _percentage = forestArea > 0 ? ((double)searchedArea / forestArea) * 100 : 0;
+            
+            // Clamp percentage to 100 max
+            if (_percentage > 100) _percentage = 100;
+            
+            // Uppdatera även rover-statistik
+            await UpdateRoverStatistics();
+            
+            // Update UI on Blazor's thread
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Ignore errors during polling
+        }
     }
 
 Steg 6: Lägg till nya rader i HTML-sektionen efter "Searched":
