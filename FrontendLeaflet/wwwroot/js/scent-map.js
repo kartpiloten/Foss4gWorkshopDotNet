@@ -8,11 +8,14 @@ const ROVER_COLORS = [
     '#FF4444', // Red
     '#44FF44', // Green
     '#4444FF', // Blue
-    '#FFAA44', // Orange
     '#FF44FF', // Magenta
     '#44FFFF', // Cyan
-    '#FFFF44', // Yellow
-    '#AA44FF'  // Purple
+    '#AA44FF',  // Purple
+    '#FF8844',  // Coral
+    '#88FF44',  // Lime
+    '#4488FF',  // Sky Blue
+    '#FF4488',  // Pink
+    '#44FF88',  // Mint
 ];
 
 function getRoverColor(roverId, roverIndex) {
@@ -98,19 +101,20 @@ export function updateCoverageGeoJson(id, geoJsonString) {
     try {
         const geo = JSON.parse(geoJsonString);
 
-        // Remove previous coverage layer
         if (mapData.layers.coverage) {
-            mapData.map.removeLayer(mapData.layers.coverage);
-            mapData.layers.coverage = null;
+            mapData.layers.coverage.clearLayers();
+            mapData.layers.coverage.addData(geo);
+        } else {
+            mapData.layers.coverage = L.geoJSON(geo, {
+                style: {
+                    color: '#fed240',
+                    weight: 2,
+                    fillOpacity: 0.3
+                }
+            }).addTo(mapData.map);
         }
 
-        mapData.layers.coverage = L.geoJSON(geo, {
-            style: {
-                color: '#4444FF',
-                weight: 2,
-                fillOpacity: 0.2
-            }
-        }).addTo(mapData.map);
+        
     }
     catch (e) {
         console.error('updateCoverageGeoJson error', e);
