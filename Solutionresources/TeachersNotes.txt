@@ -1,194 +1,166 @@
-- Vi startar hela övningen med ett motiverande demo av systemet där vi visar programmeet och ser till att alla kan köra det.
+We start the entire exercise with a motivating demo of the system where we show the program and make sure everyone can run it.
 
+Exercise 1
+Start QGIS and connect to the PostGIS database used by the Rover system. Start PGAdmin and navigate to the roverdata schema.
+The connection string in appsettings.json is:
+"Host=postgis-demo-nz.postgres.database.azure.com;Port=5432;Username=postgres;Password=WorkshopGavle2025;Database=aucklandroverdata;Timeout=60;Command Timeout=60",
 
-Övning 1
-Nytillverkad rover av en underleverantör (som levererar Roverpunkter i fel koordinatsystem.)
-- Anders kör sin felaktiga rover från sin dator som gör att punkterna hamnar fel.
--- I grundversionen av systemet så är det geografiska objektet typat som Geometry.
-Påverkar inte funktionen om rovern skickar rätt srid
-Filen: PostgresRoverDataRepository.cs --> InitializeAsync
-CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
-    id BIGSERIAL PRIMARY KEY,
-    geom geometry(Geometry),
-    session_id UUID NOT NULL,
-    sequence INT NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    wind_direction_deg SMALLINT NOT NULL,
-    wind_speed_mps REAL NOT NULL
-);
--- Gjort search and replace i koden för att ändra koordinatsystemet från 4326 till 3006
+Run the following SQL:
+SELECT
+rp.id,
+rp.geom,
+rp.rover_id,
+rp.rover_name,
+rp.session_id,
+rs.session_name,
+rp.sequence,
+rp.recorded_at,
+rp.latitude,
+rp.longitude,
+rp.wind_direction_deg,
+rp.wind_speed_mps
+FROM roverdata.rover_points_bck rp
+LEFT JOIN roverdata.rover_sessions_bck rs ON rp.session_id = rs.session_id
+WHERE rs.session_name = 'test1'::text;
 
-Joakim och deltagarna kör frontend 
-- Vi ger deltagarna några minuter att fundera på hur de skulle lösa problemet.
-- Efter det så diskuterar vi deras lösningar och hur vi kan implementera dem i systemet.
+Go back to QGIS and refresh the layer list to see the new layer.
 
-Jokaim börjar att ändra typningen till (point, 4326)
-Filen: PostgresRoverDataRepository.cs --> InitializeAsync
-CREATE TABLE IF NOT EXISTS roverdata.rover_measurements (
-    id BIGSERIAL PRIMARY KEY,
-    geom geometry(Point, 4326),
-    session_id UUID NOT NULL,
-    sequence INT NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    wind_direction_deg SMALLINT NOT NULL,
-    wind_speed_mps REAL NOT NULL
-);
-- Då genereras ett felmeddelande om att koordinatsystemet är ogiltigt.
-- Anders ändrar i sin Rover-konfiguration till rätt koordinatsystem (4326).
+Exercise 2
+In the original version, the ScentPolygonLibrary produces only a “fan” polygon for each rover point. In this exercise we add an additional area around the rover based on the fact that the handler and dog have a local zone around them where they can detect people regardless of wind direction.
 
-Övning 2
-I ursprungsversionen producerar ScentPolygonLibrary endast en "fan"-polygon för varje Roverpunkt.
-I denna övning lägger vi till ett område runt rovern baserat på att hundförare och hund har ett område kring sig
-där de kan upptäcka människor oavsett vindriktning.
-Beräkningen sker i ScentPolygonLibrary i filen ScentPolygonCalculator.cs funktionen CreateScentPolygon.
-Ursprungskoden är:
-        var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
-        fan.SRID = 4326;
-        // *** Excercise 2 ***
-        // *** Add code here to add a circular buffer around the dog position *** 
-        // Small circular buffer around the dog to always include a local detection zone
+The calculation takes place in ScentPolygonLibrary in the file ScentPolygonCalculator.cs, function CreateScentPolygon.
+The original code is:
 
-        return fan;
+var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
+fan.SRID = 4326;
+// *** Exercise 2 ***
+// *** Add code here to add a circular buffer around the dog position ***
+// Small circular buffer around the dog to always include a local detection zone
+return fan;
 
-Uppdaterade koden är:
-        var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
-        fan.SRID = 4326;
-        // *** Excercise 2 ***
-        // *** Add code here to add a circular buffer around the dog position *** 
-        // Small circular buffer around the dog to always include a local detection zone
-        var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
-        var smallBuffer = dogPoint.Buffer(bufferRadiusDegrees); // NTS Buffer: circle approximation in lat/lon degrees
+The updated code is:
 
-        // Combine fan and buffer (union). Handle common result types simply.
+var fan = geometryFactory.CreatePolygon(geometryFactory.CreateLinearRing(fanCoords.ToArray()));
+fan.SRID = 4326;
+// *** Exercise 2 ***
+// Small circular buffer around the dog to always include a local detection zone
+var bufferRadiusDegrees = config.OmnidirectionalRadiusMeters / metersPerDegLat;
+var smallBuffer = dogPoint.Buffer(bufferRadiusDegrees); // NTS Buffer: circle approximation in lat/lon degrees
 
-        Geometry finalPolygon = fan.Union(smallBuffer);
-  
-        finalPolygon.SRID = 4326;
-        return (Polygon)finalPolygon;
+// Combine fan and buffer (union). Handle common result types simply.
+Geometry finalPolygon = fan.Union(smallBuffer);
 
-Övning 3
-Frontend: Utöka statistik-komponenten med rover-data och GIS-beräkningar
+finalPolygon.SRID = 4326;
+return (Polygon)finalPolygon;
 
-Mål: Utöka den befintliga Blazor-komponenten ForestCoveragePie.razor med:
-- Total distans som rovern färdats (beräknad med Haversine-formeln)
-- Medel/min/max vindhastighet från alla mätpunkter
+Exercise 3
+Frontend: Extend the statistics component with rover data and GIS calculations.
+Goal: Extend the existing Blazor component ForestCoveragePie.razor with:
 
-Fil att ändra: FrontendLeaflet/Components/ForestCoveragePie.razor
+Total distance travelled by the rover (using the Haversine formula)
 
-Steg 1: Injicera IRoverDataRepository i komponenten
-Lägg till längst upp (efter @inject ScentPolygonLibrary.ScentPolygonGenerator Generator):
+Average / min / max wind speed from all measurement points
+
+File to modify: FrontendLeaflet/Components/ForestCoveragePie.razor
+
+Step 1: Inject IRoverDataRepository into the component:
 @inject RoverData.Repository.IRoverDataRepository RoverRepository
 
-Steg 2: Lägg till nya privata fält i @code-sektionen:
-    private double _totalDistanceKm = 0;
-    private double _avgWindSpeed = 0;
-    private double _minWindSpeed = 0;
-    private double _maxWindSpeed = 0;
+Step 2: Add new private fields in the @code section:
+private double _totalDistanceKm = 0;
+private double _avgWindSpeed = 0;
+private double _minWindSpeed = 0;
+private double _maxWindSpeed = 0;
 
-Steg 3: Skapa en metod för Haversine-beräkning:
-    private double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
-    {
-        const double R = 6371; // Jordens radie i km (Earth's radius)
-        var dLat = (lat2 - lat1) * Math.PI / 180.0;
-        var dLon = (lon2 - lon1) * Math.PI / 180.0;
-        
-        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *
-                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-        
-        var c = 2 * Math.Asin(Math.Sqrt(a));
-        return R * c;
-    }
+Step 3: Create a method for Haversine calculation:
+private double CalculateHaversineDistance(double lat1, double lon1, double lat2, double lon2)
+{
+const double R = 6371;
+var dLat = (lat2 - lat1) * Math.PI / 180.0;
+var dLon = (lon2 - lon1) * Math.PI / 180.0;
 
-Steg 4: Skapa en async metod för att uppdatera rover-statistik:
-    private async Task UpdateRoverStatistics()
-    {
-        try
-        {
-            // Use IRoverDataRepository (LINQ: GetAllAsync)
-            var measurements = await RoverRepository.GetAllAsync();
-            
-            if (!measurements.Any()) return;
-            
-            // Group measurements by rover (LINQ: GroupBy)
-            var roverGroups = measurements.GroupBy(m => new { m.RoverId, m.RoverName });
-            
-            _totalDistanceKm = 0;
-            var allWindSpeeds = new List<float>();
-            
-            // Calculate distance and wind stats for each rover separately
-            foreach (var roverGroup in roverGroups)
-            {
-                var roverPoints = roverGroup.OrderBy(m => m.Sequence).ToList();
-                
-                // Beräkna distans per rover
-                for (int i = 1; i < roverPoints.Count; i++)
-                {
-                    _totalDistanceKm += CalculateHaversineDistance(
-                        roverPoints[i-1].Latitude, roverPoints[i-1].Longitude,
-                        roverPoints[i].Latitude, roverPoints[i].Longitude);
-                }
-                
-                // Samla vinddata från alla rovers
-                allWindSpeeds.AddRange(roverGroup.Select(m => m.WindSpeedMps));
-            }
-            
-            // Beräkna vindstatistik från alla mätpunkter
-            _avgWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Average() : 0;
-            _minWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Min() : 0;
-            _maxWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Max() : 0;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error updating rover statistics: {ex.Message}");
-        }
-    }
+var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +  
+        Math.Cos(lat1 * Math.PI / 180.0) * Math.Cos(lat2 * Math.PI / 180.0) *  
+        Math.Sin(dLon / 2) * Math.Sin(dLon / 2);  
 
-Steg 5: Uppdatera PollForUpdates-metoden för att även uppdatera rover-statistik:
-    private async Task PollForUpdates()
-    {
-        try
-        {
-            var (searchedArea, forestArea) = await Generator.GetForestIntersectionAreasAsync();
-            _searchedAreaM2 = searchedArea;
-            _forestAreaM2 = forestArea;
-            _percentage = forestArea > 0 ? ((double)searchedArea / forestArea) * 100 : 0;
-            
-            // Clamp percentage to 100 max
-            if (_percentage > 100) _percentage = 100;
-            
-            // Uppdatera även rover-statistik
-            await UpdateRoverStatistics();
-            
-            // Update UI on Blazor's thread
-            await InvokeAsync(StateHasChanged);
-        }
-        catch
-        {
-            // Ignore errors during polling
-        }
-    }
+var c = 2 * Math.Asin(Math.Sqrt(a));  
+return R * c;  
 
-Steg 6: Lägg till nya rader i HTML-sektionen efter "Searched":
-        <div class="info-row">
-            <span class="info-label">Total Distance:</span>
-            <span class="info-value">@_totalDistanceKm.ToString("F2") km</span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Avg Wind:</span>
-            <span class="info-value">@_avgWindSpeed.ToString("F1") m/s</span>
-        </div>
-        <div class="info-row">
-            <span class="info-label">Min/Max Wind:</span>
-            <span class="info-value">@_minWindSpeed.ToString("F1") / @_maxWindSpeed.ToString("F1") m/s</span>
-        </div>
 
-Diskussionspunkter:
-- Varför använder vi Haversine istället för Pythagoras? (Jordens krökning)
-- Är beräkningen exakt? (Nej, approximation - jordens avplattning, elevationsförändringar)
-- Prestanda: Hur många punkter kan vi hantera innan beräkningen tar för lång tid?
-- Alternativ: Skulle vi kunna beräkna distansen i databasen med PostGIS ST_Distance?
+}
+
+Step 4: Create an async method to update rover statistics:
+private async Task UpdateRoverStatistics()
+{
+try
+{
+var measurements = await RoverRepository.GetAllAsync();
+if (!measurements.Any()) return;
+
+    var roverGroups = measurements.GroupBy(m => new { m.RoverId, m.RoverName });  
+
+    _totalDistanceKm = 0;  
+    var allWindSpeeds = new List<float>();  
+
+    foreach (var roverGroup in roverGroups)  
+    {  
+        var roverPoints = roverGroup.OrderBy(m => m.Sequence).ToList();  
+
+        for (int i = 1; i < roverPoints.Count; i++)  
+        {  
+            _totalDistanceKm += CalculateHaversineDistance(  
+                roverPoints[i - 1].Latitude, roverPoints[i - 1].Longitude,  
+                roverPoints[i].Latitude, roverPoints[i].Longitude);  
+        }  
+
+        allWindSpeeds.AddRange(roverGroup.Select(m => m.WindSpeedMps));  
+    }  
+
+    _avgWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Average() : 0;  
+    _minWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Min() : 0;  
+    _maxWindSpeed = allWindSpeeds.Any() ? allWindSpeeds.Max() : 0;  
+}  
+catch (Exception ex)  
+{  
+    Console.WriteLine($"Error updating rover statistics: {ex.Message}");  
+}  
+
+
+}
+
+Step 5: Update PollForUpdates to also update rover statistics:
+private async Task PollForUpdates()
+{
+try
+{
+var (searchedArea, forestArea) = await Generator.GetForestIntersectionAreasAsync();
+_searchedAreaM2 = searchedArea;
+_forestAreaM2 = forestArea;
+_percentage = forestArea > 0 ? ((double)searchedArea / forestArea) * 100 : 0;
+
+    if (_percentage > 100) _percentage = 100;  
+
+    await UpdateRoverStatistics();  
+    await InvokeAsync(StateHasChanged);  
+}  
+catch  
+{  
+    // Ignore polling errors  
+}  
+
+
+}
+
+Step 6: Add new rows in the HTML section after “Searched”:
+
+<div class="info-row"> <span class="info-label">Total Distance:</span> <span class="info-value">@_totalDistanceKm.ToString("F2") km</span> </div> <div class="info-row"> <span class="info-label">Avg Wind:</span> <span class="info-value">@_avgWindSpeed.ToString("F1") m/s</span> </div> <div class="info-row"> <span class="info-label">Min/Max Wind:</span> <span class="info-value">@_minWindSpeed.ToString("F1") / @_maxWindSpeed.ToString("F1") m/s</span> </div>
+
+Discussion points:
+
+Why do we use Haversine instead of Pythagoras? (Earth’s curvature)
+
+Is the calculation exact? (No, it is an approximation affected by Earth’s flattening and elevation changes)
+
+Performance: How many points can we process before the calculation becomes too slow?
+
+Alternatives: Could we calculate the distance in the database using PostGIS ST_Distance?
