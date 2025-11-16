@@ -12,7 +12,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solutionresources", "Soluti
 		Solutionresources\TeachersNotes.txt = Solutionresources\TeachersNotes.txt
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReadRoverDBStubTester", "ReadRoverDBStubTester\ReadRoverDBStubTester.csproj", "{25A71A30-4369-D07F-33BC-171BEB5FC63A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RoverDataTester", "RoverDataTester\RoverDataTester.csproj", "{25A71A30-4369-D07F-33BC-171BEB5FC63A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScentPolygonLibrary", "ScentPolygonLibrary\ScentPolygonLibrary.csproj", "{D5E71FB6-6074-7633-7BAD-35072AC63644}"
 EndProject

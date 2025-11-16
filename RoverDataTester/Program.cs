@@ -1,8 +1,3 @@
-using RoverData.Repository;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
-using Npgsql;
-
 // This project uses top-level statements (C# feature) to keep the sample minimal.
 
 /// <summary>
