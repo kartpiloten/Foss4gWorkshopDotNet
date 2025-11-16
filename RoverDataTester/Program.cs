@@ -1,5 +1,8 @@
 // This project uses top-level statements (C# feature) to keep the sample minimal.
-
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
+using Npgsql;
+using RoverData.Repository;
 /// <summary>
 /// Simple test to verify that we can fetch the latest Rover Measurement from GeoPackage
 /// Run this while RoverSimulator is writing data to see if new measurements appear
