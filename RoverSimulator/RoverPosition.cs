@@ -138,7 +138,7 @@ public class RoverPosition
         }
     }
 
-    public Point ToGeometry() => new Point(Longitude, Latitude) { SRID = 4326 };
+    public Point ToGeometry() => new Point(Longitude, Latitude) { SRID = 3006 };
 
     private static double NormalizeDegrees(double degrees)
     {
