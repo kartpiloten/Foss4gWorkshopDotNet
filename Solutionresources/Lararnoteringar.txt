@@ -16,10 +16,12 @@ The Connection String in appsettings.json is:
     rs.session_name,
     rp.sequence,
     rp.recorded_at,
+    rp.latitude,
+    rp.longitude,
     rp.wind_direction_deg,
     rp.wind_speed_mps
    FROM roverdata.rover_points_bck rp
-     LEFT JOIN roverdata.rover_sessions rs ON rp.session_id = rs.session_id
+     LEFT JOIN roverdata.rover_sessions_bck rs ON rp.session_id = rs.session_id
   WHERE rs.session_name = 'test1'::text;
 
   Gå till QGIS och gör refresh på lagerlistan för att se det nya skiktet.
