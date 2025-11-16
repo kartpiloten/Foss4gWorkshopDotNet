@@ -82,7 +82,7 @@ public class RoverPosition
     /// </summary>
     public bool IsInForestBoundary(Polygon forestPolygon)
     {
-        var currentPoint = new Point(Longitude, Latitude) { SRID = 4326 };
+        var currentPoint = new Point(Longitude, Latitude) { SRID = 3006 };
         return forestPolygon.Contains(currentPoint);
     }
 

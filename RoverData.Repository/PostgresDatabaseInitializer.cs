@@ -19,6 +19,7 @@ public class PostgresDatabaseInitializer
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
+        //    geom geometry(Point,4326),
         var createSql = @"
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE SCHEMA IF NOT EXISTS roverdata;
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS roverdata.rover_sessions (
 
 CREATE TABLE IF NOT EXISTS roverdata.rover_points (
     id BIGSERIAL PRIMARY KEY,
-    geom geometry(Point,4326),
+    geom geometry(Geometry),
     rover_id UUID NOT NULL,
     rover_name TEXT NOT NULL,
     session_id UUID NOT NULL,
