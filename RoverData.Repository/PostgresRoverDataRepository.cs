@@ -37,16 +37,14 @@ public class PostgresRoverDataRepository : IRoverDataRepository
         
         var insertSql = @"
 INSERT INTO roverdata.rover_points
-(rover_id, rover_name, session_id, recorded_at, latitude, longitude, wind_direction_deg, wind_speed_mps, geom, sequence)
-VALUES (@rover_id, @rover_name, @session_id, @recorded_at, @latitude, @longitude, @wind_direction_deg, @wind_speed_mps, @geom, @sequence);";
+(rover_id, rover_name, session_id, recorded_at, wind_direction_deg, wind_speed_mps, geom, sequence)
+VALUES (@rover_id, @rover_name, @session_id, @recorded_at, @wind_direction_deg, @wind_speed_mps, @geom, @sequence);";
 
         await using var cmd = new NpgsqlCommand(insertSql, connection);
         cmd.Parameters.AddWithValue("@rover_id", measurement.RoverId);
         cmd.Parameters.AddWithValue("@rover_name", measurement.RoverName);
         cmd.Parameters.AddWithValue("@session_id", sessionId);
         cmd.Parameters.AddWithValue("@recorded_at", measurement.RecordedAt);
-        cmd.Parameters.AddWithValue("@latitude", measurement.Latitude);
-        cmd.Parameters.AddWithValue("@longitude", measurement.Longitude);
         cmd.Parameters.AddWithValue("@wind_direction_deg", measurement.WindDirectionDeg);
         cmd.Parameters.AddWithValue("@wind_speed_mps", measurement.WindSpeedMps);
         cmd.Parameters.AddWithValue("@geom", measurement.Geometry);
@@ -59,7 +57,7 @@ VALUES (@rover_id, @rover_name, @session_id, @recorded_at, @latitude, @longitude
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         var sql = @"
-SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
+SELECT rover_id, rover_name, session_id, sequence, recorded_at, 
        wind_direction_deg, wind_speed_mps, geom
 FROM roverdata.rover_points 
 WHERE session_id = @session_id
@@ -78,11 +76,9 @@ ORDER BY sequence ASC;";
                 reader.GetFieldValue<Guid>(2),
                 reader.GetFieldValue<int>(3),
                 reader.GetFieldValue<DateTimeOffset>(4),
-                reader.GetFieldValue<double>(5),
-                reader.GetFieldValue<double>(6),
-                reader.GetFieldValue<short>(7),
-                reader.GetFieldValue<float>(8),
-                reader.GetFieldValue<Point>(9)
+                reader.GetFieldValue<short>(5),
+                reader.GetFieldValue<float>(6),
+                reader.GetFieldValue<Point>(7)
             ));
         }
         return measurements;
@@ -92,7 +88,7 @@ ORDER BY sequence ASC;";
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         var sql = @"
-SELECT rover_id, rover_name, session_id, sequence, recorded_at, latitude, longitude, 
+SELECT rover_id, rover_name, session_id, sequence, recorded_at, 
        wind_direction_deg, wind_speed_mps, geom
 FROM roverdata.rover_points
 WHERE session_id = @session_id AND sequence > @lastSequence
@@ -112,11 +108,9 @@ ORDER BY sequence ASC;";
                 reader.GetFieldValue<Guid>(2),
                 reader.GetFieldValue<int>(3),
                 reader.GetFieldValue<DateTimeOffset>(4),
-                reader.GetFieldValue<double>(5),
-                reader.GetFieldValue<double>(6),
-                reader.GetFieldValue<short>(7),
-                reader.GetFieldValue<float>(8),
-                reader.GetFieldValue<Point>(9)
+                reader.GetFieldValue<short>(5),
+                reader.GetFieldValue<float>(6),
+                reader.GetFieldValue<Point>(7)
             ));
         }
         return measurements;

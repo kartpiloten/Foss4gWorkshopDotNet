@@ -39,8 +39,6 @@ CREATE TABLE IF NOT EXISTS roverdata.rover_points (
     session_id UUID NOT NULL,
     sequence BIGINT NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
     wind_direction_deg SMALLINT NOT NULL,
     wind_speed_mps REAL NOT NULL,
     UNIQUE(session_id, rover_id, sequence)

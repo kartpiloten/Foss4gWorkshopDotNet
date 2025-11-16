@@ -543,8 +543,6 @@ class RoverSimulatorProgram
         sessionId,
         sequenceNumber++,
         now,
-        position.Latitude,
-        position.Longitude,
         attributes.GetWindDirectionAsShort(),
         attributes.GetWindSpeedAsFloat(),
         position.ToGeometry()

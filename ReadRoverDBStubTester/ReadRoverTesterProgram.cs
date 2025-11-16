@@ -113,8 +113,6 @@ using (reader)
                 Console.WriteLine(
                     $"{DateTime.Now:HH:mm:ss.fff,-12} " +
                     $"{latest.Sequence,-10} " +
-                    $"{latest.Latitude,-12:F6} " +
-                    $"{latest.Longitude,-12:F6} " +
                     $"{latest.WindSpeedMps,-12:F2} m/s " +
                     $"{latest.WindDirectionDeg,-10}�" +
                     newDataMarker
