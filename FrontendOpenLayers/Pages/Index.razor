@@ -88,7 +88,7 @@
             foreach (var roverGroup in roverGroups)
             {
                 var roverPoints = roverGroup.OrderBy(p => p.Sequence).ToList();
-                var coordinates = roverPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
+                var coordinates = roverPoints.Select(p => p.Geometry.Coordinate).ToArray();
                 var trail = new LineString(coordinates);
                 
                 if (_map != null)
@@ -99,7 +99,7 @@
                     await _map.UpdateRoverPositionAsync(
                         roverGroup.Key.RoverId,
                         roverGroup.Key.RoverName,
-                        new Point(latest.Longitude, latest.Latitude),
+                        latest.Geometry,
                         latest.WindSpeedMps,
                         latest.WindDirectionDeg
                     );
@@ -157,7 +157,7 @@
                 
                 if (roverNewPoints.Count == 0) continue;
                 
-                var newCoords = roverNewPoints.Select(p => new Coordinate(p.Longitude, p.Latitude)).ToArray();
+                var newCoords = roverNewPoints.Select(p => p.Geometry.Coordinate).ToArray();
                 
                 if (_map != null)
                 {
@@ -167,7 +167,7 @@
                     await _map.UpdateRoverPositionAsync(
                         roverGroup.Key.RoverId,
                         roverGroup.Key.RoverName,
-                        new Point(latest.Longitude, latest.Latitude),
+                        latest.Geometry,
                         latest.WindSpeedMps,
                         latest.WindDirectionDeg
                     );

@@ -48,41 +48,76 @@
     {
         if (_module == null || trail == null) return;
         
-        var floatArray = trail.Coordinates.ToFloatArray();
-        await _module.InvokeVoidAsync("updateRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+        try
+        {
+            var floatArray = trail.Coordinates.ToFloatArray();
+            await _module.InvokeVoidAsync("updateRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Circuit disconnected during page refresh - ignore
+        }
     }
 
     public async Task UpdateCoverageAsync(Geometry coverage)
     {
         if (_module == null || coverage == null) return;
 
-        _coverage = coverage;
-        // Serialize geometry to GeoJSON and pass as string
-        var geoJson = _geoJsonWriter.Write(coverage);
-        await _module.InvokeVoidAsync("updateCoverageGeoJson", Id, geoJson);
+        try
+        {
+            _coverage = coverage;
+            // Serialize geometry to GeoJSON and pass as string
+            var geoJson = _geoJsonWriter.Write(coverage);
+            await _module.InvokeVoidAsync("updateCoverageGeoJson", Id, geoJson);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Circuit disconnected during page refresh - ignore
+        }
     }
 
     public async Task UpdateForestBoundaryAsync(Polygon forestBoundary)
     {
         if (_module == null || forestBoundary == null) return;
 
-        var geoJson = _geoJsonWriter.Write(forestBoundary);
-        await _module.InvokeVoidAsync("updateForestBoundaryGeoJson", Id, geoJson);
+        try
+        {
+            var geoJson = _geoJsonWriter.Write(forestBoundary);
+            await _module.InvokeVoidAsync("updateForestBoundaryGeoJson", Id, geoJson);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Circuit disconnected during page refresh - ignore
+        }
     }
 
     public async Task UpdateRoverPositionAsync(Guid roverId, string roverName, Point position, float windSpeed, short windDirection)
     {
         if (_module == null || position == null) return;
         
-        await _module.InvokeVoidAsync("updateRoverPosition", Id, roverId.ToString(), roverName, position.X, position.Y, windSpeed, windDirection);
+        try
+        {
+            await _module.InvokeVoidAsync("updateRoverPosition", Id, roverId.ToString(), roverName, position.X, position.Y, windSpeed, windDirection);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Circuit disconnected during page refresh - ignore
+        }
     }
 
     public async Task AppendRoverTrailCoordsAsync(Guid roverId, string roverName, Coordinate[] newCoords)
     {
         if (_module == null || newCoords == null || newCoords.Length == 0) return;
         
-        var floatArray = newCoords.ToFloatArray();
-        await _module.InvokeVoidAsync("appendRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+        try
+        {
+            var floatArray = newCoords.ToFloatArray();
+            await _module.InvokeVoidAsync("appendRoverTrail", Id, roverId.ToString(), roverName, floatArray);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Circuit disconnected during page refresh - ignore
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -146,13 +146,13 @@ public class ScentPolygonGenerator
     private ScentPolygonResult GeneratePolygonForMeasurement(RoverMeasurement measurement)
     {
         var polygon = ScentPolygonCalculator.CreateScentPolygon(
-            measurement.Latitude,
-            measurement.Longitude,
+            measurement.Geometry.Centroid.Y,
+            measurement.Geometry.Centroid.X,
             measurement.WindDirectionDeg,
             measurement.WindSpeedMps,
             _configuration);
 
-        var scentArea = ScentPolygonCalculator.CalculateScentAreaM2(polygon, measurement.Latitude);
+        var scentArea = ScentPolygonCalculator.CalculateScentAreaM2(polygon, measurement.Geometry.Centroid.Y);
 
         return new ScentPolygonResult
         {
@@ -161,9 +161,6 @@ public class ScentPolygonGenerator
             RoverName = measurement.RoverName,
             SessionId = measurement.SessionId,
             Sequence = measurement.Sequence,
-            RecordedAt = measurement.RecordedAt,
-            Latitude = measurement.Latitude,
-            Longitude = measurement.Longitude,
             WindDirectionDeg = measurement.WindDirectionDeg,
             WindSpeedMps = measurement.WindSpeedMps,
             ScentAreaM2 = scentArea

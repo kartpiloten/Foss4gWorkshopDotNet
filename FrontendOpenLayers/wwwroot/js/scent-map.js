@@ -8,11 +8,14 @@ const ROVER_COLORS = [
     '#FF4444', // Red
     '#44FF44', // Green
     '#4444FF', // Blue
-    '#FFAA44', // Orange
     '#FF44FF', // Magenta
     '#44FFFF', // Cyan
-    '#FFFF44', // Yellow
-    '#AA44FF'  // Purple
+    '#AA44FF',  // Purple
+    '#FF8844',  // Coral
+    '#88FF44',  // Lime
+    '#4488FF',  // Sky Blue
+    '#FF4488',  // Pink
+    '#44FF88',  // Mint
 ];
 
 function getRoverColor(roverId, roverIndex) {
@@ -55,11 +58,11 @@ export function initMap(id) {
         source: coverageSource,
         style: new ol.style.Style({
             stroke: new ol.style.Stroke({
-                color: '#4444FF',
+                color: '#fed240ff',
                 width: 2
             }),
             fill: new ol.style.Fill({
-                color: 'rgba(68, 68, 255, 0.2)'
+                color: '#fed24059'
             })
         }),
         zIndex: 2

@@ -1,10 +1,8 @@
-using RoverData.Repository;
+// This project uses top-level statements (C# feature) to keep the sample minimal.
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Npgsql;
-
-// This project uses top-level statements (C# feature) to keep the sample minimal.
-
+using RoverData.Repository;
 /// <summary>
 /// Simple test to verify that we can fetch the latest Rover Measurement from GeoPackage
 /// Run this while RoverSimulator is writing data to see if new measurements appear
@@ -113,8 +111,6 @@ using (reader)
                 Console.WriteLine(
                     $"{DateTime.Now:HH:mm:ss.fff,-12} " +
                     $"{latest.Sequence,-10} " +
-                    $"{latest.Latitude,-12:F6} " +
-                    $"{latest.Longitude,-12:F6} " +
                     $"{latest.WindSpeedMps,-12:F2} m/s " +
                     $"{latest.WindDirectionDeg,-10}�" +
                     newDataMarker

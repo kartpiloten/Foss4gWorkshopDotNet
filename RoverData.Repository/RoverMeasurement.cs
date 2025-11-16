@@ -11,8 +11,6 @@ public record RoverMeasurement(
     Guid SessionId,
     int Sequence,
     DateTimeOffset RecordedAt,
-    double Latitude,
-    double Longitude,
     short WindDirectionDeg,
     float WindSpeedMps,
     Point Geometry);
