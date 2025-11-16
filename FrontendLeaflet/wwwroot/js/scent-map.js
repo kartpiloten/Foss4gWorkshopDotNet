@@ -46,6 +46,18 @@ export function initMap(id) {
         maxZoom: 19
     }).addTo(map);
 
+    const paneConfig = {
+        coveragePane: 400,     // Below trails
+        roverTrailPane: 600,   // Above coverage, below markers
+        roverMarkerPane: 650   // On top
+    };
+
+    Object.entries(paneConfig).forEach(([name, zIndex]) => {
+        map.getPane(name) || map.createPane(name);
+        map.getPanes()[name].style.zIndex = zIndex;
+        map.getPanes()[name].style.pointerEvents = 'none'; // Allow clicks to pass through if needed
+    });
+
     // Create reusable layers
     const layers = {
         forest: null,
@@ -85,14 +97,13 @@ export function updateRoverTrail(id, roverId, roverName, floatArray) {
         rover.trail = L.polyline(coords, {
             color: rover.color,
             weight: 3,
-            opacity: 0.7
+            opacity: 0.7,
+            pane: 'roverTrailPane'
         }).addTo(mapData.map);
         
         rover.trail.bindPopup(`<strong>${roverName}</strong>`);
     }
 }
-
-
 
 export function updateCoverageGeoJson(id, geoJsonString) {
     const mapData = maps[id];
@@ -110,7 +121,8 @@ export function updateCoverageGeoJson(id, geoJsonString) {
                     color: '#fed240',
                     weight: 2,
                     fillOpacity: 0.3
-                }
+                },
+                pane: 'coveragePane'
             }).addTo(mapData.map);
         }
 
@@ -120,8 +132,6 @@ export function updateCoverageGeoJson(id, geoJsonString) {
         console.error('updateCoverageGeoJson error', e);
     }
 }
-
-
 
 export function updateForestBoundaryGeoJson(id, geoJsonString) {
     const mapData = maps[id];
@@ -179,7 +189,8 @@ export function updateRoverPosition(id, roverId, roverName, lng, lat, windSpeed,
             color: rover.color,
             fillColor: rover.color,
             fillOpacity: 0.8,
-            weight: 2
+            weight: 2,
+            pane: 'roverMarkerPane'
         }).addTo(mapData.map);
 
         rover.position.bindTooltip(
