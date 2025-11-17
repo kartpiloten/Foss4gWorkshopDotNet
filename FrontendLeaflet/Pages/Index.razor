@@ -25,6 +25,8 @@
     private string? _error;
     private Timer? _timer;
     private Dictionary<Guid, int> _lastSequencePerRover = new();
+    private Dictionary<Guid, int> _pointCountPerRover = new();
+    private bool _boundaryLoaded = false;
     private bool _disposed = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -35,14 +37,14 @@
             
             try
             {
-                await LoadInitialDataAsync();
+                await LoadDataAsync();
                 _timer = new Timer(async _ =>
                 {
                     if (_disposed) return;
                     
                     try
                     {
-                        await InvokeAsync(async () => await LoadIncrementalDataAsync());
+                        await InvokeAsync(async () => await LoadDataAsync());
                     }
                     catch (Exception ex)
                     {
@@ -59,62 +61,107 @@
         }
     }
 
-    private async Task LoadInitialDataAsync()
+    private async Task LoadDataAsync()
     {
-        Console.WriteLine("Index: LoadInitialDataAsync starting...");
+        if (_disposed) return;
+        
         try
         {
-            // Load forest boundary first
-            var forestBoundary = await ForestBoundaryReader.GetBoundaryPolygonAsync();
-            if (forestBoundary != null && _map != null)
+            Console.WriteLine("Index: LoadDataAsync starting...");
+            
+            if (!_boundaryLoaded)
             {
-                await _map.UpdateForestBoundaryAsync(forestBoundary);
-                Console.WriteLine("Index: Forest boundary loaded");
+                var forestBoundary = await ForestBoundaryReader.GetBoundaryPolygonAsync();
+                if (forestBoundary != null && _map != null)
+                {
+                    await _map.UpdateForestBoundaryAsync(forestBoundary);
+                    Console.WriteLine("Index: Forest boundary loaded");
+                }
+                _boundaryLoaded = true;
             }
 
             using var scope = ServiceProvider.CreateScope();
             var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
             var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();      
-            var points = await reader.GetAllAsync();
             
-            if (points.Count == 0)
+            var allPoints = await reader.GetAllAsync();
+            var allRoverIds = allPoints.Select(p => p.RoverId).Distinct().ToHashSet();
+            var newRoverIds = allRoverIds.Where(id => !_lastSequencePerRover.ContainsKey(id)).ToList();
+            
+            List<RoverMeasurement> newPoints = new();
+            
+            if (newRoverIds.Count > 0)
+            {
+                var allNewRoverPoints = allPoints.Where(p => newRoverIds.Contains(p.RoverId)).ToList();
+                newPoints.AddRange(allNewRoverPoints);
+                Console.WriteLine($"Index: Found {newRoverIds.Count} new rover(s) with {allNewRoverPoints.Count} total points");
+            }
+            
+            var minLastSequence = _lastSequencePerRover.Count > 0 ? _lastSequencePerRover.Values.Min() : 0;
+            var incrementalPoints = await reader.GetNewSinceSequenceAsync(minLastSequence);
+            newPoints.AddRange(incrementalPoints.Where(p => !newRoverIds.Contains(p.RoverId) && p.Sequence > _lastSequencePerRover.GetValueOrDefault(p.RoverId, 0)));
+            
+            if (newPoints.Count == 0)
             {
                 await InvokeAsync(StateHasChanged);
                 return;
             }
 
             // Group measurements by rover
-            var roverGroups = points.GroupBy(p => new { p.RoverId, p.RoverName });
-            Console.WriteLine($"Index: Found {roverGroups.Count()} rovers with {points.Count} total points");
+            var roverGroups = newPoints.GroupBy(p => new { p.RoverId, p.RoverName });
+            Console.WriteLine($"Index: Found {roverGroups.Count()} rovers with {newPoints.Count} total points");
 
             // Update trail and position for each rover
             foreach (var roverGroup in roverGroups)
             {
+                var roverId = roverGroup.Key.RoverId;
+                var roverName = roverGroup.Key.RoverName;
                 var roverPoints = roverGroup.OrderBy(p => p.Sequence).ToList();
-                var coordinates = roverPoints.Select(p => p.Geometry.Coordinate).ToArray();
-                var trail = new LineString(coordinates);
                 
+                if (roverPoints.Count == 0) continue;
+
+                var prevCount = _pointCountPerRover.GetValueOrDefault(roverId, 0);
+
                 if (_map != null)
                 {
-                    await _map.UpdateRoverTrailAsync(roverGroup.Key.RoverId, roverGroup.Key.RoverName, trail);
-                    
+                    if (prevCount + roverPoints.Count >= 2)
+                    {
+                        if (prevCount < 2)
+                        {
+                            // Create full trail
+                            var allThisRoverPoints = allPoints.Where(p => p.RoverId == roverId).OrderBy(p => p.Sequence).ToList();
+                            var allCoords = allThisRoverPoints.Select(p => p.Geometry.Coordinate).ToArray();
+                            var trail = new LineString(allCoords);
+                            await _map.UpdateRoverTrailAsync(roverId, roverName, trail);
+                        }
+                        else
+                        {
+                            // Append new coordinates
+                            var newCoords = roverPoints.Select(p => p.Geometry.Coordinate).ToArray();
+                            await _map.AppendRoverTrailCoordsAsync(roverId, roverName, newCoords);
+                        }
+                    }
+                    // Else skip trail if < 2 points total
+
                     var latest = roverPoints.Last();
                     await _map.UpdateRoverPositionAsync(
-                        roverGroup.Key.RoverId,
-                        roverGroup.Key.RoverName,
+                        roverId,
+                        roverName,
                         latest.Geometry,
                         latest.WindSpeedMps,
                         latest.WindDirectionDeg
                     );
                 }
                 
-                // Track last sequence per rover
-                _lastSequencePerRover[roverGroup.Key.RoverId] = roverPoints.Max(p => p.Sequence);
+                // Update last sequence and point count for this rover
+                _lastSequencePerRover[roverId] = roverPoints.Max(p => p.Sequence);
+                _pointCountPerRover[roverId] = prevCount + roverPoints.Count;
                 
-                Console.WriteLine($"Index: Updated rover {roverGroup.Key.RoverName} with {roverPoints.Count} points, last seq: {_lastSequencePerRover[roverGroup.Key.RoverId]}");
+                var action = prevCount == 0 ? "Initialized" : "Updated";
+                Console.WriteLine($"Index: {action} rover {roverName} with {roverPoints.Count} points, last seq: {_lastSequencePerRover[roverId]}");
             }
 
-            Console.WriteLine($"Index: Getting combined coverage polygon for {points.Count} points...");
+            Console.WriteLine($"Index: Getting combined coverage polygon for {newPoints.Count} points...");
             var coverage = await generator.GetUnifiedPolygonAsync();
             Console.WriteLine($"Index: Coverage geometry null? {coverage?.Polygon == null}");
             if (coverage?.Polygon != null && _map != null)
@@ -129,71 +176,8 @@
         catch (Exception ex)
         {
             _error = ex.Message;
-            Console.WriteLine($"LoadInitialDataAsync error: {ex}");
+            Console.WriteLine($"LoadDataAsync error: {ex}");
             await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task LoadIncrementalDataAsync()
-    {
-        if (_disposed) return;
-        
-        try
-        {
-            using var scope = ServiceProvider.CreateScope();
-            var reader = scope.ServiceProvider.GetRequiredService<IRoverDataRepository>();
-            var generator = scope.ServiceProvider.GetRequiredService<ScentPolygonGenerator>();
-            
-            // Get the minimum last sequence across all rovers (or 0 if none)
-            var minLastSequence = _lastSequencePerRover.Count > 0 ? _lastSequencePerRover.Values.Min() : 0;
-            var newPoints = await reader.GetNewSinceSequenceAsync(minLastSequence);
-            if (newPoints.Count == 0) return;
-            
-            // Group new points by rover
-            var roverGroups = newPoints.GroupBy(p => new { p.RoverId, p.RoverName });
-            
-            foreach (var roverGroup in roverGroups)
-            {
-                // Get last sequence for this specific rover
-                var lastSeq = _lastSequencePerRover.GetValueOrDefault(roverGroup.Key.RoverId, 0);
-                
-                // Filter to only points newer than this rover's last sequence
-                var roverNewPoints = roverGroup.Where(p => p.Sequence > lastSeq).OrderBy(p => p.Sequence).ToList();
-                
-                if (roverNewPoints.Count == 0) continue;
-                
-                var newCoords = roverNewPoints.Select(p => p.Geometry.Coordinate).ToArray();
-                
-                if (_map != null)
-                {
-                    await _map.AppendRoverTrailCoordsAsync(roverGroup.Key.RoverId, roverGroup.Key.RoverName, newCoords);
-                    
-                    var latest = roverNewPoints.Last();
-                    await _map.UpdateRoverPositionAsync(
-                        roverGroup.Key.RoverId,
-                        roverGroup.Key.RoverName,
-                        latest.Geometry,
-                        latest.WindSpeedMps,
-                        latest.WindDirectionDeg
-                    );
-                }
-                
-                // Update last sequence for this rover
-                _lastSequencePerRover[roverGroup.Key.RoverId] = roverNewPoints.Max(p => p.Sequence);
-                Console.WriteLine($"Index: Updated rover {roverGroup.Key.RoverName} with {roverNewPoints.Count} new points, last seq: {_lastSequencePerRover[roverGroup.Key.RoverId]}");
-            }
-
-            var coverage = await generator.GetUnifiedPolygonAsync();
-            if (coverage?.Polygon != null && _map != null)
-            {
-                await _map.UpdateCoverageAsync(coverage.Polygon);
-            }
-            
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
         }
     }
 
