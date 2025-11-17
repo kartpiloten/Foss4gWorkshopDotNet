@@ -3,18 +3,18 @@
  - Minimal console tester to run ScentPolygonService and write a unified polygon to a GeoPackage.
  - Demonstrates async/await, events, and basic FOSS4G concepts (OGC GeoPackage).
  - Prompts user to select which session to monitor from available sessions.
- - NOW SESSION-AWARE: Filters PostgreSQL measurements by session_id.
+ - Filters PostgreSQL measurements by session_id.
  - Simplified per copilot-instructions.md (reduced logging and configuration noise).
 */
 
 using MapPiloteGeopackageHelper; // FOSS4G: OGC GeoPackage helper
 using Microsoft.Extensions.Configuration; // .NET configuration (appsettings.json)
-using ScentPolygonLibrary;
-using RoverData.Repository;
 using Microsoft.Extensions.Options;
-using System.Globalization; // Invariant formatting
-using ScentPolygonTester; // Access TesterConfiguration
 using Npgsql; // PostgreSQL for session queries
+using RoverData.Repository;
+using ScentPolygonLibrary;
+using ScentPolygonTester; // Access TesterConfiguration
+using System.Globalization; // Invariant formatting
 
 // ---- Minimal configuration bootstrap ----
 var configuration = new ConfigurationBuilder()
@@ -66,15 +66,15 @@ try
         var dataSource = new NpgsqlDataSourceBuilder(dbConfig.PostgresConnectionString!)
             .UseNetTopologySuite()
             .Build();
-        
+
         // Register or get session from database
         var sessionRepository = new SessionRepository(dataSource);
         var resolvedSessionId = await sessionRepository.RegisterOrGetSessionAsync(sessionName, cts.Token);
-        
+
         var sessionContext = new ConsoleSessionContext(resolvedSessionId, sessionName);
         dataRepository = new PostgresRoverDataRepository(dataSource, sessionContext);
         await dataRepository.InitializeAsync(cts.Token);
-  
+
         Console.WriteLine($"? PostgreSQL repository initialized for session: {sessionName}");
     }
     // For GeoPackage, point to the session-specific file
@@ -88,7 +88,7 @@ try
         var sessionContext = new ConsoleSessionContext(Guid.NewGuid(), sessionName);
         dataRepository = new GeoPackageRoverDataRepository(opts, sessionContext);
         await dataRepository.InitializeAsync(cts.Token);
-  
+
         Console.WriteLine($"? GeoPackage repository initialized for session: {sessionName}");
     }
     else
@@ -137,24 +137,24 @@ try
         {
             // Get unified polygon (cached for 1 second)
             var unified = await generator.GetUnifiedPolygonAsync(cts.Token);
-            
+
             if (unified != null && unified.IsValid)
             {
                 var currentArea = unified.TotalAreaM2;
-                
+
                 // Update GeoPackage if area changed significantly
                 if (lastUnifiedAreaM2 is null || Math.Abs(currentArea - lastUnifiedAreaM2.Value) > 0.5)
                 {
                     lastUnifiedAreaM2 = currentArea;
                     updateCount++;
-                    
+
                     // Update GeoPackage layers
                     await geoPackageUpdater.UpdateAllRoverPolygonsAsync(generator);
-                    
+
                     // Calculate forest coverage
                     var (intersectM2, forestM2) = await generator.GetForestIntersectionAreasAsync(cts.Token);
                     int areaCoveredPercent = forestM2 > 0 ? (int)Math.Round(((double)intersectM2 / forestM2) * 100) : 0;
-                    
+
                     Console.WriteLine($"\n[Update #{updateCount}] Coverage Statistics:");
                     Console.WriteLine($"  Unified scent area:    {currentArea:n0} m²");
                     Console.WriteLine($"  RiverHead forest:      {forestM2:n0} m²");
@@ -170,7 +170,7 @@ try
         {
             Console.WriteLine($"⚠ Error in polling loop: {ex.Message}");
         }
-        
+
         // Poll every second
         await Task.Delay(1000, cts.Token);
     }
@@ -190,23 +190,23 @@ static async Task<(string sessionName, Guid? sessionId)> GetSessionInfoAsync(Dat
 
     if (!sessionData.Any())
     {
-   Console.WriteLine();
- Console.WriteLine("? No existing sessions found.");
+        Console.WriteLine();
+        Console.WriteLine("? No existing sessions found.");
         Console.WriteLine("  Please start a RoverSimulator first to create a session.");
         Console.WriteLine();
         Console.WriteLine("Press Enter to exit...");
         Console.ReadLine();
         Environment.Exit(0);
- }
+    }
 
     Console.WriteLine();
     Console.Write("Enter session name or number to monitor: ");
-    
+
     string? input = Console.ReadLine()?.Trim();
-    
+
     if (string.IsNullOrEmpty(input))
     {
-   Console.WriteLine("No input provided. Using most recent session...");
+        Console.WriteLine("No input provided. Using most recent session...");
         return sessionData.First();
     }
 
@@ -217,9 +217,9 @@ static async Task<(string sessionName, Guid? sessionId)> GetSessionInfoAsync(Dat
     }
 
     // Check if input matches an existing session name
-    var matchingSession = sessionData.FirstOrDefault(s => 
+    var matchingSession = sessionData.FirstOrDefault(s =>
         s.sessionName.Equals(input, StringComparison.OrdinalIgnoreCase));
-    
+
     if (matchingSession != default)
     {
         return matchingSession;
@@ -240,11 +240,11 @@ static async Task<List<(string sessionName, Guid? sessionId)>> ListAvailableSess
     {
         try
         {
-         using var dataSource = new NpgsqlDataSourceBuilder(dbConfig.PostgresConnectionString)
- .UseNetTopologySuite()
-                .Build();
-    
-         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
+            using var dataSource = new NpgsqlDataSourceBuilder(dbConfig.PostgresConnectionString)
+    .UseNetTopologySuite()
+                   .Build();
+
+            await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
 
             const string sql = @"
       SELECT rs.session_name, 
@@ -256,59 +256,59 @@ static async Task<List<(string sessionName, Guid? sessionId)>> ListAvailableSess
   GROUP BY rs.session_name, rs.session_id
             ORDER BY MAX(rp.recorded_at) DESC NULLS LAST;";
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
- await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
 
             Console.WriteLine($"\nAvailable sessions:");
-     int index = 1;
- while (await reader.ReadAsync(cancellationToken))
+            int index = 1;
+            while (await reader.ReadAsync(cancellationToken))
             {
-             var sessionName = reader.GetString(0);
-        var sessionId = reader.GetGuid(1);
-     var count = reader.GetInt64(2);
-       var lastMeasurement = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
-        
-    sessions.Add((sessionName, sessionId));
-         
-             var lastMeasurementStr = lastMeasurement.HasValue 
-         ? lastMeasurement.Value.ToString("yyyy-MM-dd HH:mm:ss")
-      : "No measurements yet";
-      
-    Console.WriteLine($"  {index}. {sessionName}");
-        Console.WriteLine($"     ?? {count} measurements, last: {lastMeasurementStr}");
-  index++;
-}
+                var sessionName = reader.GetString(0);
+                var sessionId = reader.GetGuid(1);
+                var count = reader.GetInt64(2);
+                var lastMeasurement = reader.IsDBNull(3) ? (DateTime?)null : reader.GetDateTime(3);
+
+                sessions.Add((sessionName, sessionId));
+
+                var lastMeasurementStr = lastMeasurement.HasValue
+            ? lastMeasurement.Value.ToString("yyyy-MM-dd HH:mm:ss")
+         : "No measurements yet";
+
+                Console.WriteLine($"  {index}. {sessionName}");
+                Console.WriteLine($"     ?? {count} measurements, last: {lastMeasurementStr}");
+                index++;
+            }
         }
-  catch (Exception ex)
+        catch (Exception ex)
         {
-        Console.WriteLine($"? Warning: Could not list PostgreSQL sessions: {ex.Message}");
+            Console.WriteLine($"? Warning: Could not list PostgreSQL sessions: {ex.Message}");
         }
     }
     else if (dbConfig.DatabaseType.ToLower() == "geopackage")
     {
         var folderPath = dbConfig.GeoPackageFolderPath;
-    
-    if (!Directory.Exists(folderPath))
+
+        if (!Directory.Exists(folderPath))
         {
             Console.WriteLine($"? Warning: GeoPackage folder not found: {folderPath}");
-  return sessions;
- }
+            return sessions;
+        }
 
         var geoPackageFiles = Directory.GetFiles(folderPath, "session_*.gpkg");
 
         Console.WriteLine($"\nAvailable sessions ({geoPackageFiles.Length}):");
         int index = 1;
-foreach (var file in geoPackageFiles.OrderByDescending(f => new FileInfo(f).LastWriteTime))
-   {
+        foreach (var file in geoPackageFiles.OrderByDescending(f => new FileInfo(f).LastWriteTime))
+        {
             var fileName = Path.GetFileNameWithoutExtension(file);
-      var sessionName = fileName.Replace("session_", "");
-      sessions.Add((sessionName, null)); // GeoPackage doesn't need session_id
- 
+            var sessionName = fileName.Replace("session_", "");
+            sessions.Add((sessionName, null)); // GeoPackage doesn't need session_id
+
             var fileInfo = new FileInfo(file);
-       Console.WriteLine($"  {index}. {sessionName}");
-    Console.WriteLine($"     ?? {fileInfo.Length / 1024.0:F1} KB, modified: {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
-       index++;
-     }
+            Console.WriteLine($"  {index}. {sessionName}");
+            Console.WriteLine($"     ?? {fileInfo.Length / 1024.0:F1} KB, modified: {fileInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+            index++;
+        }
     }
 
     return sessions;
@@ -320,7 +320,7 @@ static string FindForestFile()
     var dir = new DirectoryInfo(AppContext.BaseDirectory);
     while (dir != null)
     {
-  var candidate = Path.Combine(dir.FullName, "Solutionresources", "RiverHeadForest.gpkg");
+        var candidate = Path.Combine(dir.FullName, "Solutionresources", "RiverHeadForest.gpkg");
         if (File.Exists(candidate)) return candidate;
         dir = dir.Parent;
     }
@@ -343,31 +343,31 @@ public sealed class GeoPackageUpdater : IDisposable
     private GeoPackageLayer? _combinedLayer;
     private bool _disposed;
 
- public GeoPackageUpdater(string path) => _path = path;
+    public GeoPackageUpdater(string path) => _path = path;
 
     public async Task InitializeAsync()
-{
-   var dir = Path.GetDirectoryName(_path);
-   if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+    {
+        var dir = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
         if (File.Exists(_path)) { try { File.Delete(_path); } catch { } }
 
- _gpkg = await GeoPackage.OpenAsync(_path, 4326); // EPSG:4326
-        
-    // Schema for all layers (per-rover and combined)
+        _gpkg = await GeoPackage.OpenAsync(_path, 4326); // EPSG:4326
+
+        // Schema for all layers (per-rover and combined)
         var schema = new Dictionary<string, string>
-     {
-         ["rover_name"] = "TEXT NOT NULL",
-     ["polygon_count"] = "INTEGER NOT NULL",
+        {
+            ["rover_name"] = "TEXT NOT NULL",
+            ["polygon_count"] = "INTEGER NOT NULL",
             ["total_area_m2"] = "REAL NOT NULL",
-          ["latest_sequence"] = "INTEGER NOT NULL",
+            ["latest_sequence"] = "INTEGER NOT NULL",
             ["earliest_time"] = "TEXT NOT NULL",
             ["latest_time"] = "TEXT NOT NULL",
- ["created_at"] = "TEXT NOT NULL"
-     };
-        
-     // Create the combined layer upfront
+            ["created_at"] = "TEXT NOT NULL"
+        };
+
+        // Create the combined layer upfront
         _combinedLayer = await _gpkg.EnsureLayerAsync("combined_all_rovers", schema, 4326, "POLYGON");
-     
+
         Console.WriteLine("? GeoPackage initialized with multi-rover support");
     }
 
@@ -375,81 +375,81 @@ public sealed class GeoPackageUpdater : IDisposable
     /// Updates all rover-specific layers and the combined layer
     /// </summary>
     public async Task UpdateAllRoverPolygonsAsync(ScentPolygonGenerator generator)
- {
-    if (_disposed || _gpkg == null) return;
+    {
+        if (_disposed || _gpkg == null) return;
 
-  // Get all rover-specific unified polygons
+        // Get all rover-specific unified polygons
         var roverPolygons = await generator.GetRoverUnifiedPolygonsAsync();
-        
-    if (!roverPolygons.Any()) return;
 
-   Console.WriteLine($"?? Updating {roverPolygons.Count} rover layers...");
+        if (!roverPolygons.Any()) return;
 
- // Update each rover's individual layer
+        Console.WriteLine($"?? Updating {roverPolygons.Count} rover layers...");
+
+        // Update each rover's individual layer
         int successCount = 0;
         int failCount = 0;
-        
-     foreach (var roverPolygon in roverPolygons)
-     {
-      if (!roverPolygon.IsValid) 
-      {
-         Console.WriteLine($"?? Skipping invalid polygon for rover {roverPolygon.RoverName}");
- continue;
+
+        foreach (var roverPolygon in roverPolygons)
+        {
+            if (!roverPolygon.IsValid)
+            {
+                Console.WriteLine($"?? Skipping invalid polygon for rover {roverPolygon.RoverName}");
+                continue;
             }
 
             // Get or create layer for this rover (sanitize name for layer naming)
- var layerName = SanitizeLayerName(roverPolygon.RoverName);
- 
-       if (!_roverLayers.ContainsKey(layerName))
-      {
-   var schema = new Dictionary<string, string>
-        {
-        ["rover_name"] = "TEXT NOT NULL",
- ["rover_id"] = "TEXT NOT NULL",
- ["polygon_count"] = "INTEGER NOT NULL",
- ["total_area_m2"] = "REAL NOT NULL",
-        ["latest_sequence"] = "INTEGER NOT NULL",
-  ["earliest_time"] = "TEXT NOT NULL",
-   ["latest_time"] = "TEXT NOT NULL",
-      ["version"] = "INTEGER NOT NULL",
-   ["created_at"] = "TEXT NOT NULL"
-  };
-     
-      var layer = await _gpkg.EnsureLayerAsync(layerName, schema, 4326, "POLYGON");
-         _roverLayers[layerName] = layer;
-   Console.WriteLine($"  ? Created layer: {layerName}");
-      }
+            var layerName = SanitizeLayerName(roverPolygon.RoverName);
 
-   // Update this rover's layer with exception handling
-       try
+            if (!_roverLayers.ContainsKey(layerName))
             {
-      await UpdateRoverLayerAsync(_roverLayers[layerName], roverPolygon);
-         successCount++;
-      Console.WriteLine($"  ? Updated {layerName} (v{roverPolygon.Version}, seq {roverPolygon.LatestSequence}, {roverPolygon.PolygonCount} polygons)");
- }
-    catch (Exception ex)
-{
-       failCount++;
-     Console.WriteLine($"  ? Failed to update {layerName}: {ex.Message}");
-     Console.WriteLine($"     Stack trace: {ex.StackTrace}");
-       // Continue with other rovers instead of failing completely
- }
- }
+                var schema = new Dictionary<string, string>
+                {
+                    ["rover_name"] = "TEXT NOT NULL",
+                    ["rover_id"] = "TEXT NOT NULL",
+                    ["polygon_count"] = "INTEGER NOT NULL",
+                    ["total_area_m2"] = "REAL NOT NULL",
+                    ["latest_sequence"] = "INTEGER NOT NULL",
+                    ["earliest_time"] = "TEXT NOT NULL",
+                    ["latest_time"] = "TEXT NOT NULL",
+                    ["version"] = "INTEGER NOT NULL",
+                    ["created_at"] = "TEXT NOT NULL"
+                };
+
+                var layer = await _gpkg.EnsureLayerAsync(layerName, schema, 4326, "POLYGON");
+                _roverLayers[layerName] = layer;
+                Console.WriteLine($"  ? Created layer: {layerName}");
+            }
+
+            // Update this rover's layer with exception handling
+            try
+            {
+                await UpdateRoverLayerAsync(_roverLayers[layerName], roverPolygon);
+                successCount++;
+                Console.WriteLine($"  ? Updated {layerName} (v{roverPolygon.Version}, seq {roverPolygon.LatestSequence}, {roverPolygon.PolygonCount} polygons)");
+            }
+            catch (Exception ex)
+            {
+                failCount++;
+                Console.WriteLine($"  ? Failed to update {layerName}: {ex.Message}");
+                Console.WriteLine($"     Stack trace: {ex.StackTrace}");
+                // Continue with other rovers instead of failing completely
+            }
+        }
 
         Console.WriteLine($"?? Rover layers update: {successCount} succeeded, {failCount} failed");
 
         // Update combined layer
-      try
+        try
         {
-       await UpdateCombinedLayerAsync(generator);
-      Console.WriteLine($"  ? Updated combined layer");
- }
- catch (Exception ex)
-        {
-    Console.WriteLine($"  ? Failed to update combined layer: {ex.Message}");
+            await UpdateCombinedLayerAsync(generator);
+            Console.WriteLine($"  ? Updated combined layer");
         }
-        
-     // Verify the update by reading back from GeoPackage
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ? Failed to update combined layer: {ex.Message}");
+        }
+
+        // Verify the update by reading back from GeoPackage
         await VerifyLayerUpdatesAsync();
     }
 
@@ -460,30 +460,30 @@ public sealed class GeoPackageUpdater : IDisposable
     {
         try
         {
-     Console.WriteLine("?? Verifying layer updates...");
-   
-    foreach (var (layerName, layer) in _roverLayers)
-          {
-      var count = await layer.CountAsync();
-      Console.WriteLine($"  ?? {layerName}: {count} feature(s)");
-     
-              if (count == 0)
-      {
-           Console.WriteLine($"    ?? WARNING: Layer {layerName} has no features!");
-     }
-     else if (count > 1)
-       {
-          Console.WriteLine($"    ?? WARNING: Layer {layerName} has {count} features (expected 1)!");
-       }
+            Console.WriteLine("?? Verifying layer updates...");
+
+            foreach (var (layerName, layer) in _roverLayers)
+            {
+                var count = await layer.CountAsync();
+                Console.WriteLine($"  ?? {layerName}: {count} feature(s)");
+
+                if (count == 0)
+                {
+                    Console.WriteLine($"    ?? WARNING: Layer {layerName} has no features!");
+                }
+                else if (count > 1)
+                {
+                    Console.WriteLine($"    ?? WARNING: Layer {layerName} has {count} features (expected 1)!");
+                }
             }
-            
-   if (_combinedLayer != null)
-      {
-        var combinedCount = await _combinedLayer.CountAsync();
-   Console.WriteLine($"  ?? combined_all_rovers: {combinedCount} feature(s)");
-     }
+
+            if (_combinedLayer != null)
+            {
+                var combinedCount = await _combinedLayer.CountAsync();
+                Console.WriteLine($"  ?? combined_all_rovers: {combinedCount} feature(s)");
+            }
         }
-   catch (Exception ex)
+        catch (Exception ex)
         {
             Console.WriteLine($"?? Verification failed: {ex.Message}");
         }
@@ -492,75 +492,75 @@ public sealed class GeoPackageUpdater : IDisposable
     private async Task UpdateRoverLayerAsync(GeoPackageLayer layer, RoverUnifiedPolygon roverPolygon)
     {
         try
-    {
-    await layer.DeleteAsync("1=1"); // Clear existing feature
-        }
- catch (Exception ex)
         {
-     Console.WriteLine($"?? Warning: Could not clear existing features for {roverPolygon.RoverName}: {ex.Message}");
+            await layer.DeleteAsync("1=1"); // Clear existing feature
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"?? Warning: Could not clear existing features for {roverPolygon.RoverName}: {ex.Message}");
             // Continue anyway - insert might still work
         }
-        
+
         var attrs = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
-    ["rover_name"] = roverPolygon.RoverName,
-         ["rover_id"] = roverPolygon.RoverId.ToString(),
-       ["polygon_count"] = roverPolygon.PolygonCount.ToString(CultureInfo.InvariantCulture),
-        ["total_area_m2"] = roverPolygon.TotalAreaM2.ToString("F2", CultureInfo.InvariantCulture),
-   ["latest_sequence"] = roverPolygon.LatestSequence.ToString(CultureInfo.InvariantCulture),
- ["earliest_time"] = roverPolygon.EarliestMeasurement.ToString("O"),
-        ["latest_time"] = roverPolygon.LatestMeasurement.ToString("O"),
-  ["version"] = roverPolygon.Version.ToString(CultureInfo.InvariantCulture),
- ["created_at"] = DateTimeOffset.UtcNow.ToString("O")
+            ["rover_name"] = roverPolygon.RoverName,
+            ["rover_id"] = roverPolygon.RoverId.ToString(),
+            ["polygon_count"] = roverPolygon.PolygonCount.ToString(CultureInfo.InvariantCulture),
+            ["total_area_m2"] = roverPolygon.TotalAreaM2.ToString("F2", CultureInfo.InvariantCulture),
+            ["latest_sequence"] = roverPolygon.LatestSequence.ToString(CultureInfo.InvariantCulture),
+            ["earliest_time"] = roverPolygon.EarliestMeasurement.ToString("O"),
+            ["latest_time"] = roverPolygon.LatestMeasurement.ToString("O"),
+            ["version"] = roverPolygon.Version.ToString(CultureInfo.InvariantCulture),
+            ["created_at"] = DateTimeOffset.UtcNow.ToString("O")
         };
-   
+
         var feature = new FeatureRecord(roverPolygon.UnifiedPolygon, attrs);
-        
+
         try
         {
-      await layer.BulkInsertAsync(
-          new[] { feature }, 
-  new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: true, ConflictPolicy: ConflictPolicy.Replace), 
-     null, 
-        CancellationToken.None);
-   }
-    catch (Exception)
+            await layer.BulkInsertAsync(
+                new[] { feature },
+        new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: true, ConflictPolicy: ConflictPolicy.Replace),
+           null,
+              CancellationToken.None);
+        }
+        catch (Exception)
         {
             Console.WriteLine($"? Insert failed for {roverPolygon.RoverName}:");
-        Console.WriteLine($"   Polygon valid: {roverPolygon.UnifiedPolygon?.IsValid}");
-  Console.WriteLine($"   Polygon SRID: {roverPolygon.UnifiedPolygon?.SRID}");
+            Console.WriteLine($"   Polygon valid: {roverPolygon.UnifiedPolygon?.IsValid}");
+            Console.WriteLine($"   Polygon SRID: {roverPolygon.UnifiedPolygon?.SRID}");
             Console.WriteLine($"   Polygon points: {roverPolygon.UnifiedPolygon?.NumPoints}");
             throw; // Re-throw to be caught by caller
-     }
+        }
     }
 
     private async Task UpdateCombinedLayerAsync(ScentPolygonGenerator generator)
     {
-  if (_combinedLayer == null) return;
+        if (_combinedLayer == null) return;
 
         var unified = await generator.GetUnifiedPolygonAsync();
         if (unified == null || !unified.IsValid) return;
 
         await _combinedLayer.DeleteAsync("1=1"); // Clear existing
-        
-     var roverNames = string.Join(", ", unified.RoverNames.Distinct());
-        
+
+        var roverNames = string.Join(", ", unified.RoverNames.Distinct());
+
         var attrs = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
-          ["rover_name"] = roverNames, // All rover names combined
+            ["rover_name"] = roverNames, // All rover names combined
             ["polygon_count"] = unified.PolygonCount.ToString(CultureInfo.InvariantCulture),
-      ["total_area_m2"] = unified.TotalAreaM2.ToString("F2", CultureInfo.InvariantCulture),
-     ["latest_sequence"] = "-1", // Not applicable for combined
+            ["total_area_m2"] = unified.TotalAreaM2.ToString("F2", CultureInfo.InvariantCulture),
+            ["latest_sequence"] = "-1", // Not applicable for combined
             ["earliest_time"] = unified.EarliestMeasurement.ToString("O"),
-      ["latest_time"] = unified.LatestMeasurement.ToString("O"),
+            ["latest_time"] = unified.LatestMeasurement.ToString("O"),
             ["created_at"] = DateTimeOffset.UtcNow.ToString("O")
         };
-        
+
         var feature = new FeatureRecord(unified.Polygon, attrs);
         await _combinedLayer.BulkInsertAsync(
-         new[] { feature }, 
-    new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: true, ConflictPolicy: ConflictPolicy.Replace), 
-         null, 
+         new[] { feature },
+    new BulkInsertOptions(BatchSize: 1, CreateSpatialIndex: true, ConflictPolicy: ConflictPolicy.Replace),
+         null,
  CancellationToken.None);
     }
 
@@ -570,26 +570,26 @@ public sealed class GeoPackageUpdater : IDisposable
         var sanitized = new string(roverName
    .Select(c => char.IsLetterOrDigit(c) ? c : '_')
   .ToArray());
-     
-      // Ensure it starts with a letter
+
+        // Ensure it starts with a letter
         if (!char.IsLetter(sanitized[0]))
-      {
-          sanitized = "rover_" + sanitized;
+        {
+            sanitized = "rover_" + sanitized;
         }
-        
+
         return sanitized.ToLowerInvariant();
     }
 
     public void Dispose()
     {
-        if (_disposed) return; 
+        if (_disposed) return;
         _disposed = true;
-        try 
-        { 
+        try
+        {
             _roverLayers.Clear();
-  _combinedLayer = null; 
-     _gpkg?.Dispose(); 
-        } 
-    catch { }
+            _combinedLayer = null;
+            _gpkg?.Dispose();
+        }
+        catch { }
     }
 }
