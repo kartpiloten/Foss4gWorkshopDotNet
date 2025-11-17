@@ -5,27 +5,41 @@ const maps = {};
 
 // Color palette for different rovers
 const ROVER_COLORS = [
+    '#FF44FF', // Magenta
+    '#4488FF',  // Sky Blue
     '#FF4444', // Red
     '#44FF44', // Green
     '#4444FF', // Blue
-    '#FF44FF', // Magenta
     '#44FFFF', // Cyan
     '#AA44FF',  // Purple
     '#FF8844',  // Coral
     '#88FF44',  // Lime
-    '#4488FF',  // Sky Blue
     '#FF4488',  // Pink
     '#44FF88',  // Mint
 ];
 
-function getRoverColor(roverId, roverIndex) {
-    // Use hash of roverId for consistent colors
-    let hash = 0;
-    for (let i = 0; i < roverId.length; i++) {
-        hash = ((hash << 5) - hash) + roverId.charCodeAt(i);
-        hash = hash & hash;
+// Track color assignments per map
+const colorAssignments = {};
+
+function getRoverColor(mapId, roverId) {
+    // Initialize color tracking for this map if not exists
+    if (!colorAssignments[mapId]) {
+        colorAssignments[mapId] = {};
     }
-    return ROVER_COLORS[Math.abs(hash) % ROVER_COLORS.length];
+    
+    const assignment = colorAssignments[mapId];
+    
+    // If rover already has a color, return it
+    if (assignment[roverId]) {
+        return assignment[roverId];
+    }
+    
+    // Assign next available color (or last color if all assigned)
+    const colorIndex = Math.min(Object.keys(assignment).length, ROVER_COLORS.length - 1);
+    const color = ROVER_COLORS[colorIndex];
+    assignment[roverId] = color;
+    
+    return color;
 }
 
 export function initMap(id) {
@@ -127,7 +141,7 @@ export function updateRoverTrail(id, roverId, roverName, floatArray) {
 
     // Get or create rover entry
     if (!mapData.layers.rovers[roverId]) {
-        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        const color = getRoverColor(id, roverId);
         const trailSource = new ol.source.Vector();
         const trailLayer = new ol.layer.Vector({
             source: trailSource,
@@ -222,7 +236,7 @@ export function updateRoverPosition(id, roverId, roverName, lng, lat, windSpeed,
 
     // Get or create rover entry
     if (!mapData.layers.rovers[roverId]) {
-        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        const color = getRoverColor(id, roverId);
         const trailSource = new ol.source.Vector();
         const trailLayer = new ol.layer.Vector({
             source: trailSource,
@@ -307,7 +321,7 @@ export function appendRoverTrail(id, roverId, roverName, floatArray) {
 
     // Get or create rover entry
     if (!mapData.layers.rovers[roverId]) {
-        const color = getRoverColor(roverId, Object.keys(mapData.layers.rovers).length);
+        const color = getRoverColor(id, roverId);
         const trailSource = new ol.source.Vector();
         const trailLayer = new ol.layer.Vector({
             source: trailSource,

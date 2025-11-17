@@ -292,64 +292,45 @@ class RoverSimulatorProgram
     // List existing sessions (database-type aware)
     var existingSessions = await ListAvailableSessionsAsync(settings, showOutput: true, cancellationToken);
 
-    Console.WriteLine("\nWould you like to join an existing session or create a new one?");
-    Console.Write("Type 'new' for a new session, 'auto' for auto-generated name, or enter an existing session name: ");
+    Console.WriteLine("\nEnter a session name to join or create. Press Enter for the default session ('default').");
+    Console.Write("Session name [default]: ");
 
-    string? input = Console.ReadLine()?.Trim();
+    string? input = Console.ReadLine();
 
-    if (string.IsNullOrEmpty(input))
+    // If the user pressed Enter (empty input), choose the literal 'default' session
+    if (string.IsNullOrWhiteSpace(input))
     {
-      Console.WriteLine("No input provided. Creating new session...");
-      input = "new";
+      Console.WriteLine("Using default session: 'default'");
+      return "default";
     }
 
+    input = input.Trim();
+
+    // Preserve existing 'auto' shortcut
     if (input.Equals("auto", StringComparison.OrdinalIgnoreCase))
     {
       var autoSessionName = GenerateAutoSessionName();
       Console.WriteLine($"\nAuto-generated session name: {autoSessionName}");
       return autoSessionName;
     }
-    else if (input.Equals("new", StringComparison.OrdinalIgnoreCase))
+
+    // Validate session name and sanitize it for use
+    if (!IsValidSessionName(input))
     {
-      Console.Write("\nName the new session (alphanumeric, no spaces), or 'auto' for automatic: ");
-      string? newSessionName = Console.ReadLine()?.Trim();
-
-      if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
-      {
-        newSessionName = GenerateAutoSessionName();
-        Console.WriteLine($"Auto-generated session name: {newSessionName}");
-        return newSessionName;
-      }
-
-      while (!IsValidSessionName(newSessionName))
-      {
-        Console.WriteLine("Invalid session name. Use only letters, numbers, and underscores.");
-        Console.Write("Name the new session, or 'auto' for automatic: ");
-        newSessionName = Console.ReadLine()?.Trim();
-
-        if (string.IsNullOrWhiteSpace(newSessionName) || newSessionName.Equals("auto", StringComparison.OrdinalIgnoreCase))
-        {
-          newSessionName = GenerateAutoSessionName();
-          Console.WriteLine($"Auto-generated session name: {newSessionName}");
-          return newSessionName;
-        }
-      }
-
-      return SanitizeSessionName(newSessionName!);
+      Console.WriteLine("Invalid session name. Use only letters, numbers, and underscores. Sanitizing input...");
+      input = SanitizeSessionName(input);
+      Console.WriteLine($"Sanitized session name: {input}");
     }
-    else
+
+    // If the session exists, join it; otherwise create it (by returning the name)
+    if (existingSessions.Any(s => s.Equals(input, StringComparison.OrdinalIgnoreCase)))
     {
-      // Validate that the session exists (case-insensitive)
-      if (existingSessions.Any(s => s.Equals(input, StringComparison.OrdinalIgnoreCase)))
-      {
-        return input;
-      }
-      else
-      {
-        Console.WriteLine($"\nWarning: Session '{input}' not found. Creating new session with this name...");
-        return SanitizeSessionName(input);
-      }
+      Console.WriteLine($"Joining existing session: {input}");
+      return input;
     }
+
+    Console.WriteLine($"Creating and joining new session: {input}");
+    return input;
   }
 
   private static Task<string> GetRoverNameAsync(string[] args)
