@@ -127,54 +127,6 @@ public static class ScentPolygonCalculator
     }
 
     /// <summary>
-    /// Creates a unified polygon from multiple rover-specific unified polygons (combines all rovers)
-    /// </summary>
-    public static UnifiedScentPolygon CreateUnifiedFromRoverPolygons(
-        List<RoverUnifiedPolygon> roverPolygons,
-        GeometryFactory? geometryFactory = null)
-    {
-        if (!roverPolygons.Any())
-            throw new ArgumentException("Cannot create unified polygon from empty rover polygon list", nameof(roverPolygons));
-
-        geometryFactory ??= DefaultGeometryFactory;
-
-        // Keep only valid polygons
-        var valid = roverPolygons.Where(p => p.IsValid).ToList();
-        if (!valid.Any())
-            throw new InvalidOperationException("No valid rover polygons found to create unified polygon");
-
-        // Combine all rover polygons into one
-        var geoms = valid.Select(v => (Geometry)v.UnifiedPolygon).ToList();
-        var collection = geometryFactory.BuildGeometry(geoms);
-        var unioned = collection.Union();
-
-        // Keep unioned Geometry (may be MultiPolygon)
-        unioned.SRID = 4326;
-        // Calculate total stats
-        var totalPolygonCount = valid.Sum(p => p.PolygonCount);
-        var individualAreasSum = valid.Sum(p => p.TotalAreaM2);
-        var avgLat = valid.Average(p => p.AverageLatitude);
-        var totalAreaM2 = CalculateScentAreaM2(unioned, avgLat);
-        var earliestTime = valid.Min(p => p.EarliestMeasurement);
-        var latestTime = valid.Max(p => p.LatestMeasurement);
-
-        return new UnifiedScentPolygon
-        {
-            Polygon = unioned,
-            PolygonCount = totalPolygonCount,
-            TotalAreaM2 = totalAreaM2,
-            IndividualAreasSum = individualAreasSum,
-            EarliestMeasurement = earliestTime,
-            LatestMeasurement = latestTime,
-            AverageWindSpeedMps = 0, // Not applicable when combining rover polygons
-            WindSpeedRange = (0, 0),  // Not applicable when combining rover polygons
-            SessionIds = new List<Guid>(), // Could be extracted but not critical
-            RoverIds = valid.Select(p => p.RoverId).ToList(),
-            RoverNames = valid.Select(p => p.RoverName).ToList()
-        };
-    }
-
-    /// <summary>
     /// Calculates the scent area in square meters for a polygon at the given latitude
     /// </summary>
     public static double CalculateScentAreaM2(Geometry geometry, double latitude)
